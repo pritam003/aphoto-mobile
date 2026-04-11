@@ -1,0 +1,41 @@
+modules = ["nodejs-24"]
+
+[deployment]
+router = "application"
+deploymentTarget = "autoscale"
+
+[deployment.postBuild]
+args = ["pnpm", "store", "prune"]
+env = { "CI" = "true" }
+
+[workflows]
+runButton = "Project"
+
+[agent]
+stack = "PNPM_WORKSPACE"
+expertMode = true
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 80
+
+[[ports]]
+localPort = 25253
+externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
+AZURE_STORAGE_ACCOUNT_NAME = "devpritam"
+AZURE_STORAGE_CONTAINER_NAME = "drivenew"
+AZURE_TENANT_ID = "2c2d753c-7844-4a95-8ed4-3844729e0803"
+AZURE_CLIENT_ID = "09396c05-3ba0-40c0-9e05-6ce84a21d112"
+APP_URL = "https://f8485973-b0a2-4661-9a3d-bda1f4218ea5-00-1hiffwkla2337.janeway.replit.dev"

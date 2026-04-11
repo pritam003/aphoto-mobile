@@ -1,0 +1,633 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: My Photos API - Google Photos-like app backed by Azure Blob Storage
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: photos
+    description: Photo operations
+  - name: albums
+    description: Album operations
+  - name: shares
+    description: Share operations
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/login:
+    get:
+      operationId: authLogin
+      tags: [auth]
+      summary: Redirect to Microsoft login
+      responses:
+        "302":
+          description: Redirect to Microsoft login
+
+  /auth/callback:
+    get:
+      operationId: authCallback
+      tags: [auth]
+      summary: Handle Microsoft OAuth callback
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: error
+          in: query
+          schema:
+            type: string
+        - name: error_description
+          in: query
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect after login
+
+  /auth/logout:
+    post:
+      operationId: authLogout
+      tags: [auth]
+      summary: Log out
+      responses:
+        "200":
+          description: Logged out
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+
+  /photos:
+    get:
+      operationId: listPhotos
+      tags: [photos]
+      summary: List all photos
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: album
+          in: query
+          schema:
+            type: string
+        - name: favorite
+          in: query
+          schema:
+            type: boolean
+        - name: trashed
+          in: query
+          schema:
+            type: boolean
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of photos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoListResponse"
+        "401":
+          description: Not authenticated
+
+    post:
+      operationId: uploadPhoto
+      tags: [photos]
+      summary: Upload a photo
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                description:
+                  type: string
+      responses:
+        "201":
+          description: Photo uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Photo"
+        "401":
+          description: Not authenticated
+
+  /photos/stats:
+    get:
+      operationId: getPhotoStats
+      tags: [photos]
+      summary: Get photo statistics
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoStats"
+        "401":
+          description: Not authenticated
+
+  /photos/{id}:
+    get:
+      operationId: getPhoto
+      tags: [photos]
+      summary: Get a single photo
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Photo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Photo"
+        "404":
+          description: Not found
+
+    delete:
+      operationId: deletePhoto
+      tags: [photos]
+      summary: Permanently delete a photo
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /photos/{id}/favorite:
+    patch:
+      operationId: toggleFavorite
+      tags: [photos]
+      summary: Toggle favorite status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                favorite:
+                  type: boolean
+              required: [favorite]
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Photo"
+
+  /photos/{id}/trash:
+    patch:
+      operationId: trashPhoto
+      tags: [photos]
+      summary: Move photo to trash or restore
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                trashed:
+                  type: boolean
+              required: [trashed]
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Photo"
+
+  /photos/{id}/url:
+    get:
+      operationId: getPhotoUrl
+      tags: [photos]
+      summary: Get a signed download URL for a photo
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Signed URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                required: [url]
+
+  /albums:
+    get:
+      operationId: listAlbums
+      tags: [albums]
+      summary: List all albums
+      responses:
+        "200":
+          description: List of albums
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Album"
+        "401":
+          description: Not authenticated
+
+    post:
+      operationId: createAlbum
+      tags: [albums]
+      summary: Create a new album
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+              required: [name]
+      responses:
+        "201":
+          description: Album created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Album"
+
+  /albums/{id}:
+    get:
+      operationId: getAlbum
+      tags: [albums]
+      summary: Get album details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Album
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Album"
+
+    patch:
+      operationId: updateAlbum
+      tags: [albums]
+      summary: Update an album
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Album"
+
+    delete:
+      operationId: deleteAlbum
+      tags: [albums]
+      summary: Delete an album
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /albums/{id}/photos:
+    get:
+      operationId: listAlbumPhotos
+      tags: [albums]
+      summary: List photos in an album
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Photos in album
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhotoListResponse"
+
+    post:
+      operationId: addPhotoToAlbum
+      tags: [albums]
+      summary: Add a photo to an album
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                photoId:
+                  type: string
+              required: [photoId]
+      responses:
+        "204":
+          description: Added
+
+  /albums/{id}/photos/{photoId}:
+    delete:
+      operationId: removePhotoFromAlbum
+      tags: [albums]
+      summary: Remove a photo from an album
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: photoId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Removed
+
+  /shares:
+    post:
+      operationId: createShare
+      tags: [shares]
+      summary: Create a share link for a photo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                photoId:
+                  type: string
+                expiresInHours:
+                  type: integer
+                  default: 24
+              required: [photoId]
+      responses:
+        "201":
+          description: Share link created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShareLink"
+
+  /shares/{token}:
+    get:
+      operationId: getSharedPhoto
+      tags: [shares]
+      summary: Get a shared photo by token (no auth required)
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Shared photo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedPhotoResponse"
+        "404":
+          description: Not found or expired
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required: [status]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        avatar:
+          type: string
+      required: [id, name, email]
+
+    Photo:
+      type: object
+      properties:
+        id:
+          type: string
+        filename:
+          type: string
+        description:
+          type: string
+        contentType:
+          type: string
+        size:
+          type: integer
+        width:
+          type: integer
+        height:
+          type: integer
+        url:
+          type: string
+        thumbnailUrl:
+          type: string
+        favorite:
+          type: boolean
+        trashed:
+          type: boolean
+        trashedAt:
+          type: string
+          format: date-time
+        uploadedAt:
+          type: string
+          format: date-time
+        takenAt:
+          type: string
+          format: date-time
+        albums:
+          type: array
+          items:
+            type: string
+      required: [id, filename, contentType, size, url, favorite, trashed, uploadedAt]
+
+    PhotoListResponse:
+      type: object
+      properties:
+        photos:
+          type: array
+          items:
+            $ref: "#/components/schemas/Photo"
+        nextCursor:
+          type: string
+        total:
+          type: integer
+      required: [photos, total]
+
+    PhotoStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        favorites:
+          type: integer
+        trashed:
+          type: integer
+        albums:
+          type: integer
+        totalSize:
+          type: integer
+      required: [total, favorites, trashed, albums, totalSize]
+
+    Album:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        coverUrl:
+          type: string
+        photoCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, name, photoCount, createdAt]
+
+    ShareLink:
+      type: object
+      properties:
+        token:
+          type: string
+        url:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+      required: [token, url, expiresAt]
+
+    SharedPhotoResponse:
+      type: object
+      properties:
+        photo:
+          $ref: "#/components/schemas/Photo"
+        expiresAt:
+          type: string
+          format: date-time
+      required: [photo, expiresAt]

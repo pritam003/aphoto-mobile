@@ -1,0 +1,97 @@
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ${{ secrets.REGISTRY_LOGIN_SERVER }}   # e.g. myphotosacr.azurecr.io
+  API_IMAGE: my-photos-api
+  CONTAINER_APP_NAME: my-photos-api
+  RESOURCE_GROUP: my-photos-rg
+  STATIC_WEB_APP_NAME: my-photos-frontend
+
+jobs:
+  # ── Build & push API container ──────────────────────────────────────────────
+  build-api:
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ secrets.ACR_NAME }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.API_IMAGE }}
+          tags: type=sha,prefix=
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: artifacts/api-server/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.API_IMAGE }}:cache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.API_IMAGE }}:cache,mode=max
+
+  # ── Deploy API to Container Apps ────────────────────────────────────────────
+  deploy-api:
+    needs: build-api
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Container Apps
+        run: |
+          az containerapp update \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.REGISTRY }}/${{ env.API_IMAGE }}:${{ needs.build-api.outputs.image_tag }}
+
+  # ── Build & deploy frontend to Static Web Apps ───────────────────────────────
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: artifacts/my-photos
+        env:
+          VITE_API_URL: ${{ secrets.API_URL }}   # e.g. https://my-photos-api.azurecontainerapps.io
+        run: pnpm build
+
+      - name: Deploy to Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: artifacts/my-photos
+          output_location: dist
+          skip_app_build: true
