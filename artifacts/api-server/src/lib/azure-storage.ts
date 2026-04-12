@@ -37,7 +37,13 @@ async function getUserDelegationKey(): Promise<UserDelegationKey> {
   keyStart.setMinutes(0, 0, 0);
   const keyExpiry = new Date(keyStart.getTime() + 6 * 60 * 60 * 1000);
   _delegationKeyExpiry = keyExpiry;
-  _delegationKeyPromise = getBlobServiceClient().getUserDelegationKey(keyStart, keyExpiry);
+  const p = getBlobServiceClient().getUserDelegationKey(keyStart, keyExpiry);
+  // Don't cache rejections — a transient credential failure shouldn't poison all future calls
+  _delegationKeyPromise = p.catch((err) => {
+    _delegationKeyPromise = null;
+    _delegationKeyExpiry = null;
+    throw err;
+  });
   return _delegationKeyPromise;
 }
 
@@ -63,39 +69,14 @@ export async function deleteBlob(blobName: string): Promise<void> {
   await blobClient.deleteIfExists();
 }
 
-// Returns a direct public blob URL. Container is public-read so no SAS is needed.
+// Returns a direct public blob URL (container has publicAccess=blob, no SAS needed).
+// In dev, returns an authenticated proxy path instead of the raw Azure URL.
 export function generateSasUrl(blobName: string): string {
   if (process.env.NODE_ENV !== "production") {
     return `/api/blobs/${blobName}`;
   }
 
   return `https://${accountName}.blob.core.windows.net/${containerName}/${blobName}`;
-}
-
-// Returns a short-lived read SAS URL (2 h). Works even when the container is not public.
-// Uses the cached user delegation key — fast (crypto-only) after first call.
-export async function generateReadSasUrl(blobName: string): Promise<string> {
-  if (process.env.NODE_ENV !== "production") {
-    return `/api/blobs/${blobName}`;
-  }
-
-  const startsOn = new Date();
-  const expiresOn = new Date(startsOn.getTime() + 2 * 60 * 60 * 1000); // 2 hours
-  const userDelegationKey = await getUserDelegationKey();
-
-  const sasParams = generateBlobSASQueryParameters(
-    {
-      containerName,
-      blobName,
-      permissions: BlobSASPermissions.parse("r"),
-      startsOn,
-      expiresOn,
-    },
-    userDelegationKey,
-    accountName,
-  );
-
-  return `https://${accountName}.blob.core.windows.net/${containerName}/${blobName}?${sasParams.toString()}`;
 }
 
 // Generate a write-only SAS URL so the browser can upload directly to Blob Storage

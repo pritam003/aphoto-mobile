@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import path from "path";
 import { db, photosTable, albumPhotosTable, albumsTable, shareLinksTable } from "@workspace/db";
 import { eq, and, desc, ilike, or, sql } from "drizzle-orm";
-import { uploadBlob, deleteBlob, generateReadSasUrl, generateUploadSasUrl } from "../lib/azure-storage.js";
+import { uploadBlob, deleteBlob, generateSasUrl, generateUploadSasUrl } from "../lib/azure-storage.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
@@ -104,8 +104,8 @@ router.get("/photos", async (req: any, res) => {
       .offset(parseInt(offset));
   }
 
-  const photosWithUrls = await Promise.all(photos.map(async (photo: any) => {
-      const url = await generateReadSasUrl(photo.blobName);
+  const photosWithUrls = photos.map((photo: any) => {
+      const url = generateSasUrl(photo.blobName);
       return {
         id: photo.id,
         filename: photo.filename,
@@ -123,7 +123,7 @@ router.get("/photos", async (req: any, res) => {
         takenAt: photo.takenAt,
         albums: [],
       };
-    }));
+    });
 
   res.json({ photos: photosWithUrls, total: photosWithUrls.length, hasMore: photosWithUrls.length === parseInt(limit) });
 });
@@ -174,7 +174,7 @@ router.post("/photos/register", async (req: any, res) => {
     }
   }
 
-  const url = await generateReadSasUrl(blobName);
+  const url = generateSasUrl(blobName);
   res.status(201).json({ ...photo, url, thumbnailUrl: url, albums: albumId ? [albumId] : [] });
 });
 
@@ -215,7 +215,7 @@ router.post("/photos", upload.single("file"), async (req: any, res) => {
     }
   }
 
-  const url = await generateReadSasUrl(blobName);
+  const url = generateSasUrl(blobName);
   res.status(201).json({
     ...photo,
     url,
@@ -232,7 +232,7 @@ router.get("/photos/:id/url", async (req: any, res) => {
     .where(and(eq(photosTable.id, req.params.id), eq(photosTable.userId, userId)));
 
   if (!photo) return res.status(404).json({ error: "Not found" });
-  const url = await generateReadSasUrl(photo.blobName);
+  const url = generateSasUrl(photo.blobName);
   res.json({ url });
 });
 
@@ -245,7 +245,7 @@ router.get("/photos/:id", async (req: any, res) => {
 
   if (!photo) return res.status(404).json({ error: "Not found" });
 
-  const url = await generateReadSasUrl(photo.blobName);
+  const url = generateSasUrl(photo.blobName);
   res.json({ ...photo, url, thumbnailUrl: url, albums: [] });
 });
 
@@ -261,7 +261,7 @@ router.patch("/photos/:id/favorite", async (req: any, res) => {
 
   if (!photo) return res.status(404).json({ error: "Not found" });
 
-  const url = await generateReadSasUrl(photo.blobName);
+  const url = generateSasUrl(photo.blobName);
   res.json({ ...photo, url, thumbnailUrl: url, albums: [] });
 });
 
@@ -277,7 +277,7 @@ router.patch("/photos/:id/trash", async (req: any, res) => {
 
   if (!photo) return res.status(404).json({ error: "Not found" });
 
-  const url = await generateReadSasUrl(photo.blobName);
+  const url = generateSasUrl(photo.blobName);
   res.json({ ...photo, url, thumbnailUrl: url, albums: [] });
 });
 
@@ -293,7 +293,7 @@ router.patch("/photos/:id/hide", async (req: any, res) => {
 
   if (!photo) return res.status(404).json({ error: "Not found" });
 
-  const url = await generateReadSasUrl(photo.blobName);
+  const url = generateSasUrl(photo.blobName);
   res.json({ ...photo, url, thumbnailUrl: url, albums: [] });
 });
 
