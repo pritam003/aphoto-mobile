@@ -102,9 +102,12 @@ async function runImport(importId: string, sessionId: string, userId: string, ac
         const isVideo = mimeType.startsWith("video/");
         const ext = isVideo ? ".mp4" : ".jpg";
         const baseUrl: string = item.mediaFile?.baseUrl || "";
-
-        const photoRes = await fetch(`${baseUrl}=d0`);
-        if (!photoRes.ok) throw new Error(`Download failed: ${photoRes.status}`);
+        // Picker API baseUrls require the OAuth token; =d downloads photo with Exif, =dv downloads video
+        const downloadUrl = isVideo ? `${baseUrl}=dv` : `${baseUrl}=d`;
+        const photoRes = await fetch(downloadUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!photoRes.ok) throw new Error(`Download failed: ${photoRes.status} ${await photoRes.text()}`);
 
         const buffer = Buffer.from(await photoRes.arrayBuffer());
         const blobName = `${userId}/${newAlbum.id}/${randomUUID()}${ext}`;
