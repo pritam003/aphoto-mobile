@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Heart, FolderPlus, Check, FolderMinus, Trash2, Download, X, EyeOff, Eye } from "lucide-react";
 import { groupPhotosByDate } from "@/lib/api";
 import Lightbox from "./Lightbox";
@@ -170,6 +170,33 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", onRe
   );
 }
 
+function VideoFrameThumbnail({ src, alt, className }: { src: string; alt: string; className: string }) {
+  const [thumb, setThumb] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.preload = "metadata";
+    video.muted = true;
+    video.src = src;
+    video.addEventListener("loadedmetadata", () => {
+      video.currentTime = Math.min(1, video.duration / 2);
+    });
+    video.addEventListener("seeked", () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 320;
+      canvas.height = video.videoHeight || 240;
+      canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      setThumb(canvas.toDataURL("image/jpeg", 0.7));
+    });
+    video.addEventListener("error", () => setFailed(true));
+  }, [src]);
+
+  if (failed || (!thumb)) return null;
+  return <img src={thumb} alt={alt} className={className} />;
+}
+
 function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, selected, selecting, onToggleSelect }: {
   photo: any;
   onClick: () => void;
@@ -182,6 +209,8 @@ function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, se
 }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
+  const isVideo = photo.contentType?.startsWith("video/") || /\.(mp4|mov|webm|avi|mkv)$/i.test(photo.filename || "");
+  const thumbUrl = photo.thumbnailUrl || photo.url;
   const [showAlbumPicker, setShowAlbumPicker] = useState(false);
   const [added, setAdded] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -204,6 +233,20 @@ function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, se
       className="relative aspect-square bg-muted overflow-hidden rounded-sm group focus:outline-none focus:ring-2 focus:ring-primary"
     >
       {!error ? (
+        isVideo ? (
+          <>
+            <VideoFrameThumbnail
+              src={thumbUrl}
+              alt={photo.filename}
+              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            />
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center">
+                <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+              </div>
+            </div>
+          </>
+        ) : (
         <img
           src={photo.thumbnailUrl || photo.url}
           alt={photo.filename}
@@ -213,12 +256,13 @@ function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, se
           onLoad={() => setLoaded(true)}
           onError={() => setError(true)}
         />
+        )
       ) : (
         <div className="w-full h-full flex items-center justify-center bg-muted">
           <span className="text-muted-foreground text-xs text-center px-1 break-all">{photo.filename}</span>
         </div>
       )}
-      {!loaded && !error && (
+      {!loaded && !error && !isVideo && (
         <div className="absolute inset-0 bg-muted animate-pulse" />
       )}
 
