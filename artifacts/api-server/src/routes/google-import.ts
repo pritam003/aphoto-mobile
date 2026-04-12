@@ -42,11 +42,33 @@ const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 /**
+ * Short URLs like photos.app.goo.gl redirect to an app-interstitial page
+ * (DurableDeepLink) when followed automatically. We resolve ONE hop manually
+ * to get the real photos.google.com/share/... URL.
+ */
+async function resolveUrl(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, {
+      redirect: "manual",
+      headers: { "User-Agent": BROWSER_UA },
+    });
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location");
+      if (location) return location;
+    }
+  } catch {/* fall through */}
+  return url;
+}
+
+/**
  * Fetch a public Google Photos shared album page and extract photo base-URLs.
  * Google embeds all photo data in the page HTML as lh3.googleusercontent.com/pw/... URLs.
  */
 async function scrapePublicAlbum(albumUrl: string): Promise<{ title: string; photoUrls: string[] }> {
-  const res = await fetch(albumUrl, {
+  // Resolve short URLs (photos.app.goo.gl) to the real photos.google.com URL
+  const resolvedUrl = await resolveUrl(albumUrl);
+
+  const res = await fetch(resolvedUrl, {
     headers: {
       "User-Agent": BROWSER_UA,
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
