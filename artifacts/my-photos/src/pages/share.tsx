@@ -39,7 +39,7 @@ export default function SharePage() {
         <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center">
           <FileImage className="w-4 h-4 text-primary" />
         </div>
-        <span className="text-sm font-semibold text-foreground">My Photos</span>
+        <span className="text-sm font-semibold text-foreground">APhoto</span>
         <span className="text-xs text-muted-foreground ml-auto">Shared photo</span>
       </div>
 

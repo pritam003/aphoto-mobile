@@ -54,7 +54,7 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark, collaps
         </div>
         {!collapsed && (
           <>
-            <span className="text-base font-semibold text-sidebar-foreground flex-1 truncate">My Photos</span>
+            <span className="text-base font-semibold text-sidebar-foreground flex-1 truncate">APhoto</span>
             <ChevronLeft className="w-4 h-4 text-muted-foreground shrink-0" />
           </>
         )}
