@@ -3,7 +3,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar";
 import UploadModal from "@/components/UploadModal";
-import GoogleImportModal from "@/components/GoogleImportModal";
 import LibraryPage from "@/pages/library";
 import FavoritesPage from "@/pages/favorites";
 import AlbumsPage from "@/pages/albums";
@@ -48,44 +47,20 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
 function AppLayout() {
   const [showUpload, setShowUpload] = useState(false);
-  const [showGoogleImport, setShowGoogleImport] = useState(false);
-  const [activeImportId, setActiveImportId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
     return document.documentElement.classList.contains("dark") ||
       window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
 
-  // Handle ?import_id= and ?import_error= from Google OAuth callback redirect
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const importId = params.get("import_id");
-    const importError = params.get("import_error");
-    if (importId) {
-      setActiveImportId(importId);
-      setShowGoogleImport(true);
-      window.history.replaceState({}, "", window.location.pathname);
-    } else if (importError) {
-      setActiveImportId(null);
-      setShowGoogleImport(true);
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-  }, []);
-
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
-
-  const handleOpenGoogleImport = () => {
-    setActiveImportId(null);
-    setShowGoogleImport(true);
-  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar
         onUploadClick={() => setShowUpload(true)}
-        onGoogleImportClick={handleOpenGoogleImport}
         darkMode={darkMode}
         onToggleDark={() => setDarkMode(d => !d)}
         collapsed={collapsed}
@@ -103,12 +78,6 @@ function AppLayout() {
         </Switch>
       </main>
       {showUpload && <UploadModal onClose={() => setShowUpload(false)} />}
-      {showGoogleImport && (
-        <GoogleImportModal
-          onClose={() => { setShowGoogleImport(false); setActiveImportId(null); }}
-          activeImportId={activeImportId}
-        />
-      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { X, ExternalLink, CheckCircle, AlertCircle, Loader2, Download } from "lucide-react";
+import { X, ExternalLink, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { useLocation } from "wouter";
 import { API_BASE } from "@/lib/api";
 
 interface GoogleImportModalProps {
@@ -14,6 +15,7 @@ type ImportStatus =
   | { status: "error"; albumName: string; message: string; total: number; imported: number; errors: number };
 
 export default function GoogleImportModal({ onClose, activeImportId }: GoogleImportModalProps) {
+  const [, navigate] = useLocation();
   const [url, setUrl] = useState("");
   const [urlError, setUrlError] = useState("");
   const [step, setStep] = useState<"input" | "authorizing" | "importing">(
@@ -203,14 +205,12 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
                   )}
 
                   {importStatus.status === "done" && importStatus.albumId && (
-                    <a
-                      href={`/albums/${importStatus.albumId}`}
+                    <button
+                      onClick={() => { onClose(); navigate(`/albums/${importStatus.albumId}`); }}
                       className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-                      onClick={onClose}
                     >
-                      <Download className="w-4 h-4" />
                       View imported album
-                    </a>
+                    </button>
                   )}
                   {importStatus.status !== "running" && (
                     <button

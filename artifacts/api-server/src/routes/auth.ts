@@ -123,6 +123,8 @@ router.get("/auth/google/callback", async (req, res) => {
 });
 
 // ─── Microsoft Device Code (kept for fallback) ───────────────────────────────
+
+router.get("/auth/login", async (req, res) => {
   try {
     const deviceFlow = await initiateDeviceCodeFlow();
     req.log.info(

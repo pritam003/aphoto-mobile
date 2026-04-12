@@ -206,7 +206,6 @@ router.post("/google/auth-url", requireAuth, (req: any, res) => {
   const state = randomUUID();
   pendingStates.set(state, { albumUrl: albumUrl.trim(), userId: req.currentUser.id });
   setTimeout(() => pendingStates.delete(state), 10 * 60 * 1000);
-
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: REDIRECT_URI,
@@ -229,12 +228,12 @@ router.get("/google/callback", async (req, res) => {
   const frontendUrl = APP_URL || "http://localhost:5173";
 
   if (error || !code || !state) {
-    return res.redirect(`${frontendUrl}?import_error=${encodeURIComponent(error ?? "cancelled")}`);
+    return res.redirect(`${frontendUrl}/albums?import_error=${encodeURIComponent(error ?? "cancelled")}`);
   }
 
   const pending = pendingStates.get(state);
   if (!pending) {
-    return res.redirect(`${frontendUrl}?import_error=expired`);
+    return res.redirect(`${frontendUrl}/albums?import_error=expired`);
   }
   pendingStates.delete(state);
 
@@ -262,7 +261,8 @@ router.get("/google/callback", async (req, res) => {
   const importId = randomUUID();
   runImport(importId, pending.albumUrl, pending.userId, access_token).catch(console.error);
 
-  return res.redirect(`${frontendUrl}?import_id=${importId}`);
+  // Redirect back to the Albums page so the import modal auto-opens there
+  return res.redirect(`${frontendUrl}/albums?import_id=${importId}`);
 });
 
 // GET /api/google/import/:id — poll import progress
