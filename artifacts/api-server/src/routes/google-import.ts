@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
+import https from "https";
+import http from "http";
 import { db, photosTable, albumsTable, albumPhotosTable } from "@workspace/db";
 import { uploadBlob } from "../lib/azure-storage.js";
 import { logger } from "../lib/logger.js";
@@ -45,19 +47,25 @@ const BROWSER_UA =
  * Short URLs like photos.app.goo.gl redirect to an app-interstitial page
  * (DurableDeepLink) when followed automatically. We resolve ONE hop manually
  * to get the real photos.google.com/share/... URL.
+ *
+ * Uses Node.js https/http directly because Node's native fetch returns
+ * status=0 for opaqueredirect responses (redirect:"manual"), making the
+ * Location header inaccessible.
  */
-async function resolveUrl(url: string): Promise<string> {
-  try {
-    const res = await fetch(url, {
-      redirect: "manual",
-      headers: { "User-Agent": BROWSER_UA },
+function resolveUrl(url: string): Promise<string> {
+  return new Promise((resolve) => {
+    const mod = url.startsWith("https:") ? https : http;
+    const req = mod.get(url, { headers: { "User-Agent": BROWSER_UA } }, (res) => {
+      req.destroy(); // don't download the body
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        resolve(res.headers.location);
+      } else {
+        resolve(url);
+      }
     });
-    if (res.status >= 300 && res.status < 400) {
-      const location = res.headers.get("location");
-      if (location) return location;
-    }
-  } catch {/* fall through */}
-  return url;
+    req.on("error", () => resolve(url));
+    req.setTimeout(8000, () => { req.destroy(); resolve(url); });
+  });
 }
 
 /**
