@@ -283,7 +283,11 @@ router.get("/google/callback", async (req, res) => {
     return res.redirect(`${frontendUrl}/albums?import_error=auth_failed`);
   }
 
-  const { access_token } = await tokenRes.json() as { access_token: string };
+  const tokenData = await tokenRes.json() as { access_token: string; scope?: string; token_type?: string };
+  const { access_token } = tokenData;
+  // Log granted scopes so we can diagnose scope issues
+  logger.info({ grantedScopes: tokenData.scope }, "Google OAuth token received");
+
   const importId = randomUUID();
   runImport(importId, pending.albumUrl, pending.userId, access_token).catch(console.error);
 
