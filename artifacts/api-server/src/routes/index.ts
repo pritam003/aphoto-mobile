@@ -5,6 +5,7 @@ import photosRouter from "./photos.js";
 import albumsRouter from "./albums.js";
 import sharesRouter from "./shares.js";
 import blobsRouter from "./blobs.js";
+import googleImportRouter from "./google-import.js";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(photosRouter);
 router.use(albumsRouter);
 router.use(sharesRouter);
 router.use(blobsRouter);
+router.use(googleImportRouter);
 
 export default router;

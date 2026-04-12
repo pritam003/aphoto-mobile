@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Images, Heart, BookImage, Trash2, LogOut, Sun, Moon, Upload, EyeOff, ChevronLeft, ChevronRight } from "lucide-react";
+import { Images, Heart, BookImage, Trash2, LogOut, Sun, Moon, Upload, EyeOff, ChevronLeft, ChevronRight, FolderDown } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAuthLogout, useGetPhotoStats } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -8,13 +8,14 @@ import { formatBytes } from "@/lib/api";
 
 interface SidebarProps {
   onUploadClick: () => void;
+  onGoogleImportClick: () => void;
   darkMode: boolean;
   onToggleDark: () => void;
   collapsed: boolean;
   onCollapse: (v: boolean) => void;
 }
 
-export default function Sidebar({ onUploadClick, darkMode, onToggleDark, collapsed, onCollapse }: SidebarProps) {
+export default function Sidebar({ onUploadClick, onGoogleImportClick, darkMode, onToggleDark, collapsed, onCollapse }: SidebarProps) {
   const [location] = useLocation();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -80,6 +81,24 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark, collaps
           >
             <Upload className="w-4 h-4" />
             Upload Photos
+          </button>
+        )}
+        {/* Google Photos import */}
+        {collapsed ? (
+          <button
+            onClick={onGoogleImportClick}
+            title="Import from Google Photos"
+            className="w-full flex items-center justify-center p-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors mt-1"
+          >
+            <FolderDown className="w-4 h-4" />
+          </button>
+        ) : (
+          <button
+            onClick={onGoogleImportClick}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors mt-1"
+          >
+            <FolderDown className="w-4 h-4" />
+            Import from Google
           </button>
         )}
       </div>
