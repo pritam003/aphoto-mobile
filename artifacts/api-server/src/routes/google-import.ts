@@ -167,7 +167,7 @@ router.post("/google/auth-url", requireAuth, async (req: any, res) => {
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: "https://www.googleapis.com/auth/photospicker",
+    scope: "https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
     access_type: "offline",
     state,
     prompt: "select_account consent",
