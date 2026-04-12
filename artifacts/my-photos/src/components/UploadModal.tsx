@@ -140,20 +140,39 @@ export default function UploadModal({ onClose, albumId, albumName }: UploadModal
           </div>
 
           {files.length > 0 && (
-            <div className="max-h-48 overflow-y-auto space-y-2">
-              {files.map((f, i) => (
-                <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/40">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground truncate">{f.file.name}</p>
-                    <p className="text-xs text-muted-foreground">{(f.file.size / 1024 / 1024).toFixed(1)} MB</p>
+            <div className="max-h-56 overflow-y-auto space-y-2">
+              {files.map((f, i) => {
+                const objUrl = URL.createObjectURL(f.file);
+                const isVideo = f.file.type.startsWith("video/");
+                return (
+                  <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/40">
+                    <div className="w-12 h-12 rounded-md overflow-hidden shrink-0 bg-muted flex items-center justify-center">
+                      {isVideo ? (
+                        <video
+                          src={objUrl}
+                          className="w-full h-full object-cover"
+                          muted
+                          playsInline
+                          preload="metadata"
+                          onLoadedMetadata={e => { (e.target as HTMLVideoElement).currentTime = 1; }}
+                        />
+                      ) : (
+                        <img src={objUrl} alt={f.file.name} className="w-full h-full object-cover" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground truncate">{f.file.name}</p>
+                      <p className="text-xs text-muted-foreground">{(f.file.size / 1024 / 1024).toFixed(1)} MB</p>
+                      {f.status === "error" && <p className="text-xs text-destructive truncate">{f.error}</p>}
+                    </div>
+                    {f.status === "uploading" && (
+                      <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin shrink-0" />
+                    )}
+                    {f.status === "done" && <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />}
+                    {f.status === "error" && <AlertCircle className="w-4 h-4 text-destructive shrink-0" />}
                   </div>
-                  {f.status === "uploading" && (
-                    <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                  )}
-                  {f.status === "done" && <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />}
-                  {f.status === "error" && <AlertCircle className="w-4 h-4 text-destructive shrink-0" />}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
