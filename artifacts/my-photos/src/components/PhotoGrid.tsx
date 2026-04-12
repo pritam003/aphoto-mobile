@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Heart, FolderPlus, Check, FolderMinus, Trash2, Download, X, EyeOff, Eye } from "lucide-react";
 import { groupPhotosByDate } from "@/lib/api";
 import Lightbox from "./Lightbox";
@@ -197,7 +197,72 @@ function VideoFrameThumbnail({ src, alt, className }: { src: string; alt: string
   return <img src={thumb} alt={alt} className={className} />;
 }
 
-function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, selected, selecting, onToggleSelect }: {
+function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [thumb, setThumb] = useState<string | null>(null);
+  const [hovering, setHovering] = useState(false);
+
+  useEffect(() => {
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous";
+    video.preload = "metadata";
+    video.muted = true;
+    video.src = src;
+    video.addEventListener("loadedmetadata", () => {
+      video.currentTime = Math.min(1, video.duration / 2);
+    });
+    video.addEventListener("seeked", () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 320;
+      canvas.height = video.videoHeight || 240;
+      canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      setThumb(canvas.toDataURL("image/jpeg", 0.7));
+    });
+  }, [src]);
+
+  const handleMouseEnter = () => {
+    setHovering(true);
+    videoRef.current?.play().catch(() => {});
+  };
+  const handleMouseLeave = () => {
+    setHovering(false);
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.currentTime = 0;
+    }
+  };
+
+  return (
+    <div className="w-full h-full" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      {/* Still frame shown by default, hidden while video plays */}
+      {thumb && (
+        <img
+          src={thumb}
+          alt={alt}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-150 ${hovering ? "opacity-0" : "opacity-100"}`}
+        />
+      )}
+      {/* Video element — loads lazily, plays only on hover */}
+      {hovering && (
+        <video
+          ref={videoRef}
+          src={src}
+          className="w-full h-full object-cover"
+          muted
+          loop
+          playsInline
+          autoPlay
+        />
+      )}
+      {/* Play badge — hidden while hovering */}
+      <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-150 ${hovering ? "opacity-0" : "opacity-100"}`}>
+        <div className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center">
+          <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </div>
+      </div>
+    </div>
+  );
+}
   photo: any;
   onClick: () => void;
   onRemoveFromAlbum?: (photoId: string) => void;
@@ -234,18 +299,7 @@ function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, se
     >
       {!error ? (
         isVideo ? (
-          <>
-            <VideoFrameThumbnail
-              src={thumbUrl}
-              alt={photo.filename}
-              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            />
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center">
-                <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-              </div>
-            </div>
-          </>
+          <VideoThumbnailCell src={thumbUrl} alt={photo.filename} />
         ) : (
         <img
           src={photo.thumbnailUrl || photo.url}
