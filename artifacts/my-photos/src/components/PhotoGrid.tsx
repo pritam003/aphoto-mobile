@@ -263,6 +263,8 @@ function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
     </div>
   );
 }
+
+function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, selected, selecting, onToggleSelect }: {
   photo: any;
   onClick: () => void;
   onRemoveFromAlbum?: (photoId: string) => void;
