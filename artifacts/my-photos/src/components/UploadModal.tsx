@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef } from "react";
+import { useCallback, useState, useRef, useEffect } from "react";
 import { X, CloudUpload, CheckCircle, AlertCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListPhotosQueryKey, getGetPhotoStatsQueryKey, getListAlbumPhotosQueryKey, getListAlbumsQueryKey } from "@workspace/api-client-react";
@@ -14,6 +14,34 @@ interface UploadFile {
   file: File;
   status: "pending" | "uploading" | "done" | "error";
   error?: string;
+}
+
+function VideoThumbnail({ file }: { file: File }) {
+  const [thumb, setThumb] = useState<string | null>(null);
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.src = url;
+    video.addEventListener("loadedmetadata", () => {
+      video.currentTime = Math.min(1, video.duration / 2);
+    });
+    video.addEventListener("seeked", () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 96;
+      canvas.height = video.videoHeight || 96;
+      canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+      setThumb(canvas.toDataURL());
+      URL.revokeObjectURL(url);
+    });
+    video.addEventListener("error", () => URL.revokeObjectURL(url));
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  if (!thumb) return <div className="w-full h-full bg-muted flex items-center justify-center text-muted-foreground text-xs">▶</div>;
+  return <img src={thumb} alt="" className="w-full h-full object-cover" />;
 }
 
 export default function UploadModal({ onClose, albumId, albumName }: UploadModalProps) {
@@ -142,22 +170,14 @@ export default function UploadModal({ onClose, albumId, albumName }: UploadModal
           {files.length > 0 && (
             <div className="max-h-56 overflow-y-auto space-y-2">
               {files.map((f, i) => {
-                const objUrl = URL.createObjectURL(f.file);
                 const isVideo = f.file.type.startsWith("video/");
                 return (
                   <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/40">
                     <div className="w-12 h-12 rounded-md overflow-hidden shrink-0 bg-muted flex items-center justify-center">
                       {isVideo ? (
-                        <video
-                          src={objUrl}
-                          className="w-full h-full object-cover"
-                          muted
-                          playsInline
-                          preload="metadata"
-                          onLoadedMetadata={e => { (e.target as HTMLVideoElement).currentTime = 1; }}
-                        />
+                        <VideoThumbnail file={f.file} />
                       ) : (
-                        <img src={objUrl} alt={f.file.name} className="w-full h-full object-cover" />
+                        <img src={URL.createObjectURL(f.file)} alt={f.file.name} className="w-full h-full object-cover" />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
