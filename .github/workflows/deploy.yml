@@ -98,5 +98,5 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: upload
           app_location: artifacts/my-photos
-          output_location: dist
+          output_location: dist/public
           skip_app_build: true
