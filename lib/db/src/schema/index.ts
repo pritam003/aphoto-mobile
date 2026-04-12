@@ -1,4 +1,4 @@
-import { pgTable, text, boolean, integer, bigint, timestamp, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, integer, bigint, timestamp, uuid, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -18,7 +18,12 @@ export const photosTable = pgTable("photos", {
   hidden: boolean("hidden").default(false).notNull(),
   uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
   takenAt: timestamp("taken_at"),
-});
+}, (t) => [
+  index("photos_user_uploaded_idx").on(t.userId, t.uploadedAt),
+  index("photos_user_trashed_idx").on(t.userId, t.trashed),
+  index("photos_user_hidden_idx").on(t.userId, t.hidden),
+  index("photos_user_favorite_idx").on(t.userId, t.favorite),
+]);
 
 export const albumsTable = pgTable("albums", {
   id: uuid("id").defaultRandom().primaryKey(),

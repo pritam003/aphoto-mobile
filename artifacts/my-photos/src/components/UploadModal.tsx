@@ -55,13 +55,17 @@ export default function UploadModal({ onClose, albumId, albumName }: UploadModal
           body: JSON.stringify({ filename: f.name, contentType: f.type, albumId }),
         });
         if (!presignRes.ok) throw new Error(await presignRes.text());
-        const { uploadUrl, blobName } = await presignRes.json() as { uploadUrl: string | null; blobName: string };
+        const { uploadUrl, blobName, cacheControl } = await presignRes.json() as { uploadUrl: string | null; blobName: string; cacheControl?: string };
 
         if (uploadUrl) {
           // Step 2a: upload directly from browser to Azure Blob Storage (no API proxy)
           const putRes = await fetch(uploadUrl, {
             method: "PUT",
-            headers: { "x-ms-blob-type": "BlockBlob", "Content-Type": f.type },
+            headers: {
+              "x-ms-blob-type": "BlockBlob",
+              "Content-Type": f.type,
+              ...(cacheControl ? { "x-ms-blob-cache-control": cacheControl } : {}),
+            },
             body: f,
           });
           if (!putRes.ok) throw new Error(`Blob upload failed: ${putRes.status}`);

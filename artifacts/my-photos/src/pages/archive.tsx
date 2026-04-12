@@ -5,7 +5,7 @@ import { API_BASE } from "@/lib/api";
 
 export default function ArchivePage() {
   const queryClient = useQueryClient();
-  const params = { hidden: true };
+  const params = { hidden: true, limit: 50 };
   const { data, isLoading } = useListPhotos(params as any, {
     query: { queryKey: getListPhotosQueryKey(params as any) },
   });

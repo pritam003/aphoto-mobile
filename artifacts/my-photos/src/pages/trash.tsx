@@ -8,7 +8,7 @@ import Lightbox from "@/components/Lightbox";
 export default function TrashPage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const queryClient = useQueryClient();
-  const params = { trashed: true };
+  const params = { trashed: true, limit: 50 };
   const { data, isLoading } = useListPhotos(params as any, {
     query: { queryKey: getListPhotosQueryKey(params as any) },
   });

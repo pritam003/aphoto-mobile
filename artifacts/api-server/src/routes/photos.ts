@@ -20,21 +20,29 @@ router.use(requireAuth);
 
 router.get("/photos/stats", async (req: any, res) => {
   const userId = req.currentUser.id;
-  const [all, favorites, trashed, hidden, albumCount] = await Promise.all([
-    db.select({ size: photosTable.size }).from(photosTable).where(and(eq(photosTable.userId, userId), eq(photosTable.trashed, false), eq(photosTable.hidden, false))),
-    db.select({ id: photosTable.id }).from(photosTable).where(and(eq(photosTable.userId, userId), eq(photosTable.favorite, true), eq(photosTable.trashed, false), eq(photosTable.hidden, false))),
-    db.select({ id: photosTable.id }).from(photosTable).where(and(eq(photosTable.userId, userId), eq(photosTable.trashed, true))),
-    db.select({ id: photosTable.id }).from(photosTable).where(and(eq(photosTable.userId, userId), eq(photosTable.hidden, true), eq(photosTable.trashed, false))),
-    db.execute(`SELECT COUNT(DISTINCT album_id) AS cnt FROM albums WHERE user_id = $1`, [userId]).catch(() => ({ rows: [{ cnt: 0 }] })),
+  // Single query replaces 4 separate COUNT queries — saves 3× round-trip latency
+  const [statsRow, albumCount] = await Promise.all([
+    db.execute(
+      `SELECT
+         COUNT(*) FILTER (WHERE NOT trashed AND NOT hidden) AS total,
+         COALESCE(SUM(size) FILTER (WHERE NOT trashed AND NOT hidden), 0) AS total_size,
+         COUNT(*) FILTER (WHERE favorite AND NOT trashed AND NOT hidden) AS favorites,
+         COUNT(*) FILTER (WHERE trashed) AS trashed,
+         COUNT(*) FILTER (WHERE hidden AND NOT trashed) AS hidden
+       FROM photos WHERE user_id = $1`,
+      [userId],
+    ),
+    db.execute(`SELECT COUNT(DISTINCT album_id) AS cnt FROM album_photos ap JOIN albums a ON a.id = ap.album_id WHERE a.user_id = $1`, [userId])
+      .catch(() => ({ rows: [{ cnt: 0 }] })),
   ]);
-  const totalSize = all.reduce((acc: number, p: { size: number }) => acc + (p.size || 0), 0);
+  const r = (statsRow as any).rows?.[0] ?? {};
   res.json({
-    total: all.length,
-    favorites: favorites.length,
-    trashed: trashed.length,
-    hidden: hidden.length,
+    total: Number(r.total ?? 0),
+    favorites: Number(r.favorites ?? 0),
+    trashed: Number(r.trashed ?? 0),
+    hidden: Number(r.hidden ?? 0),
     albums: Number((albumCount as any).rows?.[0]?.cnt ?? 0),
-    totalSize,
+    totalSize: Number(r.total_size ?? 0),
   });
 });
 
@@ -138,7 +146,8 @@ router.post("/photos/presign", async (req: any, res) => {
     : `${userId}/${randomUUID()}${ext}`;
 
   const uploadUrl = await generateUploadSasUrl(blobName, contentType);
-  res.json({ uploadUrl: uploadUrl || null, blobName });
+  // Client must set x-ms-blob-cache-control on the PUT so browsers cache images long-term
+  res.json({ uploadUrl: uploadUrl || null, blobName, cacheControl: "public, max-age=31536000, immutable" });
 });
 
 // Saves photo metadata after a direct browser→blob upload.

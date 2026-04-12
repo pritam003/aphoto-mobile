@@ -207,6 +207,8 @@ function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, se
         <img
           src={photo.thumbnailUrl || photo.url}
           alt={photo.filename}
+          loading="lazy"
+          decoding="async"
           className={`w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 ${loaded ? "opacity-100" : "opacity-0"}`}
           onLoad={() => setLoaded(true)}
           onError={() => setError(true)}

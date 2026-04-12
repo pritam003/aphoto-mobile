@@ -19,7 +19,7 @@ export default function LibraryPage() {
     debounceRef.current = setTimeout(() => setDebouncedSearch(val), 400);
   };
 
-  const params = { ...(debouncedSearch ? { search: debouncedSearch } : {}), trashed: false, hidden: false };
+  const params = { ...(debouncedSearch ? { search: debouncedSearch } : {}), trashed: false, hidden: false, limit: 50 };
   const { data, isLoading } = useListPhotos(params as any, {
     query: { queryKey: getListPhotosQueryKey(params as any) },
   });

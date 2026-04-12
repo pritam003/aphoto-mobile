@@ -49,7 +49,10 @@ export async function uploadBlob(
   const containerClient = getContainerClient();
   const blockBlobClient = containerClient.getBlockBlobClient(blobName);
   await blockBlobClient.uploadData(data, {
-    blobHTTPHeaders: { blobContentType: contentType },
+    blobHTTPHeaders: {
+      blobContentType: contentType,
+      blobCacheControl: "public, max-age=31536000, immutable",
+    },
   });
   return blobName;
 }
