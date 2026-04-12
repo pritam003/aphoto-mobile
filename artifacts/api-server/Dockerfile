@@ -2,7 +2,7 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Copy workspace manifests
-COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY artifacts/api-server/package.json ./artifacts/api-server/
 COPY lib/db/package.json ./lib/db/
 COPY lib/api-spec/package.json ./lib/api-spec/
