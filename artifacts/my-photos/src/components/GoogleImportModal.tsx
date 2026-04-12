@@ -55,18 +55,19 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
 
     setStarting(true);
     try {
-      const res = await fetch(`${API_BASE}/google/import`, {
+      const res = await fetch(`${API_BASE}/google/auth-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ albumUrl: url.trim() }),
       });
-      const data = await res.json() as { importId?: string; error?: string };
-      if (!res.ok || !data.importId) {
-        setUrlError(data.error ?? "Failed to start import. Make sure the album is publicly shared.");
+      const data = await res.json() as { authUrl?: string; error?: string };
+      if (!res.ok || !data.authUrl) {
+        setUrlError(data.error ?? "Failed to start import.");
         return;
       }
-      setImportId(data.importId);
+      // Redirect browser to Google OAuth consent screen
+      window.location.href = data.authUrl;
     } catch {
       setUrlError("Network error — please try again.");
     } finally {
@@ -97,8 +98,8 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
           {!importId && (
             <>
               <p className="text-sm text-muted-foreground">
-                Paste any Google Photos album link you have access to — yours or shared with you.
-                The album must be publicly shared (no sign-in required).
+                Paste any Google Photos album link — yours or shared with you.
+                You'll be asked to sign in with Google to authorize the import.
               </p>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-foreground">Album URL</label>
@@ -123,7 +124,7 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
                 disabled={starting || !url.trim()}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {starting ? <><Loader2 className="w-4 h-4 animate-spin" /> Starting…</> : "Import Photos"}
+                {starting ? <><Loader2 className="w-4 h-4 animate-spin" /> Redirecting…</> : "Continue with Google"}
               </button>
             </>
           )}

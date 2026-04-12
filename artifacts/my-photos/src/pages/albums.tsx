@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, BookImage, Trash2, FolderDown } from "lucide-react";
 import { useListAlbums, useCreateAlbum, useDeleteAlbum, getListAlbumsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -8,7 +8,20 @@ import GoogleImportModal from "@/components/GoogleImportModal";
 export default function AlbumsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [activeImportId, setActiveImportId] = useState<string | null>(null);
   const [name, setName] = useState("");
+
+  // Auto-open modal when arriving from Google OAuth callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const importId = params.get("import_id");
+    const importError = params.get("import_error");
+    if (importId || importError) {
+      setActiveImportId(importId);
+      setShowImport(true);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
   const queryClient = useQueryClient();
 
   const { data: albums, isLoading } = useListAlbums({
@@ -134,8 +147,10 @@ export default function AlbumsPage() {
 
       {showImport && (
         <GoogleImportModal
+          activeImportId={activeImportId}
           onClose={() => {
             setShowImport(false);
+            setActiveImportId(null);
             queryClient.invalidateQueries({ queryKey: getListAlbumsQueryKey() });
           }}
         />
