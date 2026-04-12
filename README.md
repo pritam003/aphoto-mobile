@@ -22,12 +22,13 @@ A Google Photos-style personal photo library — built with React, Express, Azur
 
 ## Features
 
-- Upload photos and videos (JPG, PNG, HEIC, MP4) — drag-and-drop or file picker
-- Browse your library grouped by date
+- Upload photos and videos (JPG, PNG, HEIC, MP4) — drag-and-drop, file picker, or direct browser-to-storage upload
+- Browse your library grouped by date with **Load More** pagination (50 photos per page)
 - Search photos by filename
 - Favorites — heart any photo
 - Albums — create albums, upload directly to an album
 - Trash — soft-delete with restore
+- Archive / Hide — hide photos from the main library without deleting
 - Dark mode
 - Sign in with any Microsoft / Azure Entra ID account (Device Code Flow — works on any device)
 
@@ -91,8 +92,10 @@ Run these commands one by one. Replace the placeholder values shown in `< >`.
 ### Resource Group
 
 ```bash
-az group create --name my-photos-rg --location eastus
+az group create --name my-photos-rg --location centralindia
 ```
+
+> **Region choice**: `centralindia` co-locates all resources (DB, Storage, Container App) for lowest latency. Adjust to your preferred region — just keep everything in the same region.
 
 ### Container Registry (for the API Docker image)
 
@@ -111,7 +114,7 @@ az acr create \
 az postgres flexible-server create \
   --resource-group my-photos-rg \
   --name <UNIQUE_DB_SERVER_NAME> \
-  --location eastus \
+  --location centralindia \
   --admin-user pgadmin \
   --admin-password "<STRONG_PASSWORD>" \
   --sku-name Standard_B1ms \
@@ -131,15 +134,34 @@ az postgres flexible-server create \
 az storage account create \
   --resource-group my-photos-rg \
   --name <UNIQUE_STORAGE_NAME> \
-  --location eastus \
+  --location centralindia \
   --sku Standard_LRS \
   --kind StorageV2 \
-  --allow-blob-public-access false
+  --allow-blob-public-access true
 
+# Get the account key
+STORAGE_KEY=$(az storage account keys list \
+  --account-name <UNIQUE_STORAGE_NAME> \
+  --resource-group my-photos-rg \
+  --query "[0].value" -o tsv)
+
+# Create the photos container with public read access (URLs are served directly)
 az storage container create \
   --account-name <UNIQUE_STORAGE_NAME> \
+  --account-key "$STORAGE_KEY" \
   --name photos \
-  --auth-mode login
+  --public-access blob
+
+# Add CORS rule so browsers can PUT files directly to storage
+az storage cors add \
+  --account-name <UNIQUE_STORAGE_NAME> \
+  --account-key "$STORAGE_KEY" \
+  --services b \
+  --methods GET PUT OPTIONS HEAD \
+  --origins "https://<YOUR_SWA_URL>" \
+  --allowed-headers "content-type,x-ms-blob-cache-control,x-ms-blob-type,x-ms-blob-content-type" \
+  --exposed-headers "ETag,Last-Modified,x-ms-request-id,x-ms-version" \
+  --max-age 3600
 ```
 
 ### Container Apps Environment & App
@@ -150,7 +172,7 @@ az provider register --namespace Microsoft.App --wait
 az containerapp env create \
   --name my-photos-env \
   --resource-group my-photos-rg \
-  --location eastus
+  --location centralindia
 
 az containerapp create \
   --name my-photos-api \
@@ -160,10 +182,11 @@ az containerapp create \
   --target-port 3000 \
   --ingress external \
   --min-replicas 1 \
-  --max-replicas 3
+  --max-replicas 3 \
+  --system-assigned
 ```
 
-Note the Container App URL from the output (looks like `https://my-photos-api.<random>.eastus.azurecontainerapps.io`).
+Note the Container App URL from the output (looks like `https://my-photos-api.<random>.centralindia.azurecontainerapps.io`).
 
 ### Static Web App (frontend)
 
@@ -195,6 +218,8 @@ az containerapp secret set \
 
 ### Set environment variables
 
+> **Important**: Do not set `AZURE_CLIENT_ID`. The API uses the Container App's system-assigned managed identity automatically via `DefaultAzureCredential`. Setting `AZURE_CLIENT_ID` to any other value causes credential resolution to fail.
+
 ```bash
 az containerapp update \
   --name my-photos-api \
@@ -207,7 +232,6 @@ az containerapp update \
     AZURE_STORAGE_CONTAINER_NAME=photos \
     AZURE_TENANT_ID=<YOUR_TENANT_ID> \
     MSAL_CLIENT_ID=<YOUR_APP_CLIENT_ID> \
-    API_SELF_URL="https://<YOUR_CONTAINER_APP_URL>" \
     DATABASE_URL="secretref:db-url" \
     JWT_SECRET="secretref:jwt-secret" \
     SESSION_SECRET="secretref:session-secret"
@@ -217,16 +241,10 @@ az containerapp update \
 
 ## Step 5 — Assign managed identity to Container App
 
-This lets the API access Blob Storage and generate SAS URLs without any stored keys.
+This lets the API access Blob Storage and generate SAS upload URLs without any stored keys.
 
 ```bash
-# Enable system-assigned managed identity
-az containerapp identity assign \
-  --name my-photos-api \
-  --resource-group my-photos-rg \
-  --system-assigned
-
-# Get the identity's principal ID
+# Get the identity's principal ID (--system-assigned was set at create time above)
 PRINCIPAL_ID=$(az containerapp show \
   --name my-photos-api \
   --resource-group my-photos-rg \
@@ -237,9 +255,9 @@ STORAGE_ID=$(az storage account show \
   --resource-group my-photos-rg \
   --query id -o tsv)
 
-# Grant blob read/write + SAS key generation
-az role assignment create --assignee "$PRINCIPAL_ID" --role "Storage Blob Data Contributor" --scope "$STORAGE_ID"
-az role assignment create --assignee "$PRINCIPAL_ID" --role "Storage Blob Delegator" --scope "$STORAGE_ID"
+# Storage Blob Data Owner is required — Contributor is NOT sufficient.
+# Owner includes the getUserDelegationKey permission needed for SAS upload URLs.
+az role assignment create --assignee "$PRINCIPAL_ID" --role "Storage Blob Data Owner" --scope "$STORAGE_ID"
 
 # Allow Container App to pull from ACR
 ACR_ID=$(az acr show --name <UNIQUE_ACR_NAME> --resource-group my-photos-rg --query id -o tsv)
@@ -321,7 +339,7 @@ Go to your GitHub repo → **Settings** → **Secrets and variables** → **Acti
 | `REGISTRY_LOGIN_SERVER` | `<UNIQUE_ACR_NAME>.azurecr.io` |
 | `ACR_NAME` | `<UNIQUE_ACR_NAME>` |
 | `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA token from above |
-| `API_URL` | `https://<YOUR_CONTAINER_APP_URL>` |
+| `API_URL` | `https://<YOUR_CONTAINER_APP_URL>` (used as `VITE_API_URL` at build time) |
 
 ### Push to deploy
 
@@ -371,15 +389,16 @@ Azure Static Web App          ← frontend (HTML/JS/CSS)
       │
       │  /api/* (cross-origin fetch with credentials)
       ▼
-Azure Container App           ← Express API (Node 22, Docker)
+Azure Container App           ← Express API (Node 22, Docker) — Central India
   ├── /api/auth/*             ← Device Code Flow + JWT HttpOnly cookie
-  ├── /api/photos/*           ← upload · list · search · favorite · trash
+  ├── /api/photos/*           ← presign · register · list (paginated) · search · favorite · trash · hide
   ├── /api/albums/*           ← create · list · add photos
   └── /api/blobs/*            ← local-dev blob proxy
       │                 │
       ▼                 ▼
 Azure Blob Storage    Azure PostgreSQL    Azure Entra ID
-(photos container)    (photo_master DB)  (Device Code + JWT)
+(Central India)       (Central India)    (Device Code + JWT)
+public-read container  photo_master DB
 ```
 
 **Auth flow:**
@@ -388,9 +407,15 @@ Azure Blob Storage    Azure PostgreSQL    Azure Entra ID
 3. API polls Microsoft and receives an access token → creates a JWT → sets `HttpOnly; SameSite=None; Secure` cookie
 4. All subsequent API calls carry the cookie automatically
 
+**Upload flow (direct browser → storage):**
+1. Frontend calls `POST /api/photos/presign` with filename + content type
+2. API generates a user-delegation SAS URL (signed by the managed identity's `Storage Blob Data Owner` role)
+3. Browser PUTs the file directly to Blob Storage using the SAS URL (no bytes go through the API)
+4. Frontend calls `POST /api/photos/register` with the blob name to save metadata in PostgreSQL
+
 **Blob serving:**
-- In production, the API generates time-limited **user delegation SAS URLs** signed by the Container App's managed identity — the browser fetches images directly from Blob Storage with no stored keys
-- In local dev, a proxy route `/api/blobs/*` streams blobs through the API (Vite proxies the cookie)
+- Photos container has public-read access — URLs are direct `https://<account>.blob.core.windows.net/photos/<blob>` with no expiry
+- CORS is configured on the storage account to allow PUT from the frontend origin
 
 ---
 
