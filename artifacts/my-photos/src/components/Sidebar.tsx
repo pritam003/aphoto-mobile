@@ -4,17 +4,18 @@ import { useAuth } from "@/hooks/useAuth";
 import { useAuthLogout, useGetPhotoStats } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatBytes } from "@/lib/api";
-import { useState } from "react";
+
 
 interface SidebarProps {
   onUploadClick: () => void;
   darkMode: boolean;
   onToggleDark: () => void;
+  collapsed: boolean;
+  onCollapse: (v: boolean) => void;
 }
 
-export default function Sidebar({ onUploadClick, darkMode, onToggleDark }: SidebarProps) {
+export default function Sidebar({ onUploadClick, darkMode, onToggleDark, collapsed, onCollapse }: SidebarProps) {
   const [location] = useLocation();
-  const [collapsed, setCollapsed] = useState(false);
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const logout = useAuthLogout();
@@ -38,13 +39,13 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark }: Sideb
 
   return (
     <div
-      className={`flex flex-col h-full bg-sidebar border-r border-sidebar-border shrink-0 transition-[width] duration-200 overflow-hidden ${
-        collapsed ? "w-[52px]" : "w-64"
+      className={`fixed left-0 top-0 h-full w-64 flex flex-col bg-sidebar border-r border-sidebar-border z-20 overflow-hidden transition-transform duration-200 will-change-transform ${
+        collapsed ? "-translate-x-[204px]" : "translate-x-0"
       }`}
     >
       {/* Header / toggle */}
       <button
-        onClick={() => setCollapsed(c => !c)}
+        onClick={() => onCollapse(!collapsed)}
         title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         className="flex items-center gap-2.5 p-4 border-b border-sidebar-border hover:bg-sidebar-accent/40 transition-colors w-full text-left"
       >
