@@ -10,11 +10,18 @@ const router = Router();
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const APP_URL = process.env.APP_URL || "";
-const REDIRECT_URI = `${APP_URL}/api/google/callback`;
+// APP_URL is the *frontend* SWA URL — used for post-callback redirects to /albums
+const APP_URL = process.env.APP_URL || "http://localhost:5173";
 
-// In-memory state store: stateKey -> { albumUrl (resolved), userId }
-const pendingStates = new Map<string, { albumUrl: string; userId: string }>();
+/** Returns the API's own origin so REDIRECT_URI always points at the API, not the SWA frontend. */
+function apiOrigin(req: any): string {
+  const proto = (req.get("x-forwarded-proto") as string | undefined) || req.protocol || "https";
+  const host = req.get("host") as string;
+  return `${proto}://${host}`;
+}
+
+// In-memory state store: stateKey -> { albumUrl (resolved), userId, redirectUri }
+const pendingStates = new Map<string, { albumUrl: string; userId: string; redirectUri: string }>();
 
 // In-memory import status: importId -> status
 interface ImportStatus {
@@ -223,14 +230,15 @@ router.post("/google/auth-url", requireAuth, async (req: any, res) => {
 
   // Resolve short URLs (photos.app.goo.gl) before storing
   const resolved = await resolveUrl(albumUrl.trim());
+  const redirectUri = `${apiOrigin(req)}/api/google/callback`;
 
   const state = randomUUID();
-  pendingStates.set(state, { albumUrl: resolved, userId: req.currentUser.id });
+  pendingStates.set(state, { albumUrl: resolved, userId: req.currentUser.id, redirectUri });
   setTimeout(() => pendingStates.delete(state), 10 * 60 * 1000);
 
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
-    redirect_uri: REDIRECT_URI,
+    redirect_uri: redirectUri,
     response_type: "code",
     scope: [
       "https://www.googleapis.com/auth/photoslibrary.readonly",
@@ -265,7 +273,7 @@ router.get("/google/callback", async (req, res) => {
       code,
       client_id: GOOGLE_CLIENT_ID!,
       client_secret: GOOGLE_CLIENT_SECRET!,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: pending.redirectUri,
       grant_type: "authorization_code",
     }).toString(),
   });
