@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Images, Heart, BookImage, Trash2, LogOut, Sun, Moon, Upload, EyeOff } from "lucide-react";
+import { Images, Heart, BookImage, Trash2, LogOut, Sun, Moon, Upload, EyeOff, ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAuthLogout, useGetPhotoStats } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ interface SidebarProps {
 
 export default function Sidebar({ onUploadClick, darkMode, onToggleDark }: SidebarProps) {
   const [location] = useLocation();
+  const [collapsed, setCollapsed] = useState(false);
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const logout = useAuthLogout();
@@ -34,46 +35,78 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark }: Sideb
   ];
 
   return (
-    <div className="flex flex-col h-full bg-sidebar border-r border-sidebar-border w-64 shrink-0">
-      <div className="p-5 border-b border-sidebar-border">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
-            <Images className="w-4 h-4 text-primary" />
-          </div>
-          <span className="text-base font-semibold text-sidebar-foreground">My Photos</span>
+    <div
+      className={`flex flex-col h-full bg-sidebar border-r border-sidebar-border shrink-0 transition-all duration-300 overflow-hidden ${
+        collapsed ? "w-[52px]" : "w-64"
+      }`}
+    >
+      {/* Header / toggle */}
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        className="flex items-center gap-2.5 p-4 border-b border-sidebar-border hover:bg-sidebar-accent/40 transition-colors w-full text-left"
+      >
+        <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
+          <Images className="w-4 h-4 text-primary" />
         </div>
+        {!collapsed && (
+          <>
+            <span className="text-base font-semibold text-sidebar-foreground flex-1 truncate">My Photos</span>
+            <ChevronLeft className="w-4 h-4 text-muted-foreground shrink-0" />
+          </>
+        )}
+        {collapsed && <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 ml-auto" />}
+      </button>
+
+      {/* Upload button */}
+      <div className="p-2">
+        {collapsed ? (
+          <button
+            onClick={onUploadClick}
+            data-testid="button-upload"
+            title="Upload Photos"
+            className="w-full flex items-center justify-center p-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+          </button>
+        ) : (
+          <button
+            onClick={onUploadClick}
+            data-testid="button-upload"
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+            Upload Photos
+          </button>
+        )}
       </div>
 
-      <div className="p-3">
-        <button
-          onClick={onUploadClick}
-          data-testid="button-upload"
-          className="w-full flex items-center gap-2.5 px-3 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
-        >
-          <Upload className="w-4 h-4" />
-          Upload Photos
-        </button>
-      </div>
-
-      <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
+      {/* Nav */}
+      <nav className="flex-1 px-2 py-1 space-y-0.5 overflow-y-auto overflow-x-hidden">
         {navItems.map(({ href, icon: Icon, label, count }) => {
           const isActive = href === "/" ? location === "/" || location === "" : location.startsWith(href);
           return (
             <Link key={href} href={href}>
               <a
                 data-testid={`nav-${label.toLowerCase()}`}
-                className={`flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors group ${
+                title={collapsed ? label : undefined}
+                className={`flex items-center gap-2.5 px-2 py-2.5 rounded-lg text-sm font-medium transition-colors group ${
+                  collapsed ? "justify-center" : "justify-between"
+                } ${
                   isActive
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
                 }`}
               >
-                <div className="flex items-center gap-2.5">
-                  <Icon className={`w-4 h-4 ${isActive ? "text-primary" : "text-sidebar-foreground/70 group-hover:text-primary/70"}`} />
-                  {label}
+                <div className={`flex items-center gap-2.5 ${collapsed ? "" : ""}`}>
+                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-primary" : "text-sidebar-foreground/70 group-hover:text-primary/70"}`} />
+                  {!collapsed && label}
                 </div>
-                {count !== undefined && count > 0 && (
+                {!collapsed && count !== undefined && count > 0 && (
                   <span className="text-xs text-muted-foreground tabular-nums">{count}</span>
+                )}
+                {collapsed && count !== undefined && count > 0 && (
+                  <span className="absolute -top-1 -right-1 hidden" />
                 )}
               </a>
             </Link>
@@ -81,7 +114,8 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark }: Sideb
         })}
       </nav>
 
-      {stats && stats.totalSize > 0 && (
+      {/* Storage */}
+      {!collapsed && stats && stats.totalSize > 0 && (
         <div className="px-5 py-3 border-t border-sidebar-border">
           <p className="text-xs text-muted-foreground">{formatBytes(stats.totalSize)} used</p>
           <div className="mt-1.5 h-1 bg-muted rounded-full overflow-hidden">
@@ -90,33 +124,47 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark }: Sideb
         </div>
       )}
 
-      <div className="p-3 border-t border-sidebar-border space-y-1">
+      {/* Footer */}
+      <div className={`p-2 border-t border-sidebar-border space-y-1`}>
         <button
           onClick={onToggleDark}
           data-testid="button-toggle-theme"
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-sidebar-foreground hover:bg-sidebar-accent/60 transition-colors"
+          title={darkMode ? "Light mode" : "Dark mode"}
+          className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-sm text-sidebar-foreground hover:bg-sidebar-accent/60 transition-colors ${collapsed ? "justify-center" : ""}`}
         >
-          {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          {darkMode ? "Light mode" : "Dark mode"}
+          {darkMode ? <Sun className="w-4 h-4 shrink-0" /> : <Moon className="w-4 h-4 shrink-0" />}
+          {!collapsed && (darkMode ? "Light mode" : "Dark mode")}
         </button>
 
         {user && (
-          <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg">
+          <div className={`flex items-center gap-2.5 px-2 py-2 rounded-lg ${collapsed ? "justify-center" : ""}`}>
             <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-semibold shrink-0">
               {user.name?.[0]?.toUpperCase() ?? "U"}
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-sidebar-foreground truncate">{user.name}</p>
-              <p className="text-xs text-muted-foreground truncate">{user.email}</p>
-            </div>
-            <button
-              onClick={handleLogout}
-              data-testid="button-logout"
-              title="Sign out"
-              className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-            </button>
+            {!collapsed && (
+              <>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-sidebar-foreground truncate">{user.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  data-testid="button-logout"
+                  title="Sign out"
+                  className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
+            {collapsed && (
+              <button
+                onClick={handleLogout}
+                data-testid="button-logout"
+                title="Sign out"
+                className="hidden"
+              />
+            )}
           </div>
         )}
       </div>
