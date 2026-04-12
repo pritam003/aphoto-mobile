@@ -21,8 +21,10 @@ FROM node:22-alpine
 WORKDIR /app
 
 COPY --from=builder /app/artifacts/api-server/dist ./dist
+# Merge workspace root node_modules first, then overlay api-server node_modules
+# so @azure/* and other externalized packages are resolvable from /app/node_modules
 COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/artifacts/api-server/node_modules ./artifacts/api-server/node_modules
+COPY --from=builder /app/artifacts/api-server/node_modules ./node_modules
 
 ENV NODE_ENV=production
 EXPOSE 3000
