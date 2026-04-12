@@ -3,7 +3,7 @@ import multer from "multer";
 import { randomUUID } from "crypto";
 import path from "path";
 import { db, photosTable, albumPhotosTable, albumsTable, shareLinksTable } from "@workspace/db";
-import { eq, and, desc, ilike, or } from "drizzle-orm";
+import { eq, and, desc, ilike, or, sql } from "drizzle-orm";
 import { uploadBlob, deleteBlob, generateSasUrl, generateUploadSasUrl } from "../lib/azure-storage.js";
 
 const router = Router();
@@ -23,16 +23,15 @@ router.get("/photos/stats", async (req: any, res) => {
   // Single query replaces 4 separate COUNT queries — saves 3× round-trip latency
   const [statsRow, albumCount] = await Promise.all([
     db.execute(
-      `SELECT
+      sql`SELECT
          COUNT(*) FILTER (WHERE NOT trashed AND NOT hidden) AS total,
          COALESCE(SUM(size) FILTER (WHERE NOT trashed AND NOT hidden), 0) AS total_size,
          COUNT(*) FILTER (WHERE favorite AND NOT trashed AND NOT hidden) AS favorites,
          COUNT(*) FILTER (WHERE trashed) AS trashed,
          COUNT(*) FILTER (WHERE hidden AND NOT trashed) AS hidden
-       FROM photos WHERE user_id = $1`,
-      [userId],
+       FROM photos WHERE user_id = ${userId}`,
     ),
-    db.execute(`SELECT COUNT(DISTINCT album_id) AS cnt FROM album_photos ap JOIN albums a ON a.id = ap.album_id WHERE a.user_id = $1`, [userId])
+    db.execute(sql`SELECT COUNT(DISTINCT album_id) AS cnt FROM album_photos ap JOIN albums a ON a.id = ap.album_id WHERE a.user_id = ${userId}`)
       .catch(() => ({ rows: [{ cnt: 0 }] })),
   ]);
   const r = (statsRow as any).rows?.[0] ?? {};
