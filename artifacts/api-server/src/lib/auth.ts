@@ -1,7 +1,7 @@
 import { logger } from "./logger.js";
 
 const tenantId = process.env.AZURE_TENANT_ID;
-const clientId = process.env.AZURE_CLIENT_ID;
+const clientId = process.env.MSAL_CLIENT_ID;
 const appUrl = process.env.APP_URL || "";
 
 export const DEFAULT_REDIRECT_URI = `${appUrl}/api/auth/callback`;
@@ -21,7 +21,7 @@ export async function initiateDeviceCodeFlow(): Promise<{
   // Check if Azure credentials are configured
   if (!tenantId || !clientId) {
     throw new Error(
-      "Azure credentials (AZURE_TENANT_ID, AZURE_CLIENT_ID) not configured. Device code flow requires Azure Entra ID setup."
+      "Azure credentials (AZURE_TENANT_ID, MSAL_CLIENT_ID) not configured. Device code flow requires Azure Entra ID setup."
     );
   }
 
@@ -62,7 +62,7 @@ export async function pollForDeviceCodeToken(
   id_token: string;
 } | null> {
   if (!clientId || !tenantId) {
-    throw new Error("AZURE_CLIENT_ID and AZURE_TENANT_ID must be configured.");
+    throw new Error("MSAL_CLIENT_ID and AZURE_TENANT_ID must be configured.");
   }
 
   const params = new URLSearchParams({
