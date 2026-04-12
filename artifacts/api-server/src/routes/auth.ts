@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { randomBytes } from "crypto";
 import jwt from "jsonwebtoken";
 import {
   initiateDeviceCodeFlow,
@@ -12,8 +11,7 @@ const router = Router();
 // JWT secret - same as app.ts
 const JWT_SECRET = process.env.JWT_SECRET || "your-app-id-or-realm-identifier";
 
-// Store device codes temporarily (in production: use Redis or DB)
-const deviceCodeMap = new Map<string, number>();
+const isDev = process.env.NODE_ENV !== "production";
 
 // Helper to create JWT token
 function createToken(user: {
@@ -80,16 +78,6 @@ router.post("/auth/device-code-status", async (req, res) => {
     return res.status(400).json({ error: "device_code required" });
   }
 
-  // Check if device code has expired
-  const expiry = deviceCodeMap.get(device_code);
-  if (!expiry) {
-    return res.status(410).json({ error: "Device code expired or invalid" });
-  }
-  if (Date.now() > expiry) {
-    deviceCodeMap.delete(device_code);
-    return res.status(410).json({ error: "Device code expired" });
-  }
-
   try {
     const tokens = await pollForDeviceCodeToken(device_code);
 
@@ -111,21 +99,22 @@ router.post("/auth/device-code-status", async (req, res) => {
     const token = createToken(user);
 
     // Set secure HTTP-only cookie with JWT
+    // cross-site (SWA -> Container App) requires SameSite=None + Secure
     res.cookie("auth_token", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      secure: true,
+      sameSite: isDev ? "lax" : "none",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    // Clean up device code
-    deviceCodeMap.delete(device_code);
-
     req.log.info({ userId: msUser.id }, "User authenticated via device code");
     return res.json({ status: "success", token });
-  } catch (err) {
+  } catch (err: unknown) {
     req.log.error({ err, device_code }, "Device code poll failed");
-    deviceCodeMap.delete(device_code);
+    // expired_token / invalid_grant → device code has expired
+    if (err instanceof Error && (err as Error & { code?: string }).code === "expired_token") {
+      return res.status(410).json({ status: "expired", error: "Device code expired. Please try again." });
+    }
     return res.status(500).json({
       status: "error",
       detail: String(err),

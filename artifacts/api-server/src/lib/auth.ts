@@ -87,11 +87,14 @@ export async function pollForDeviceCodeToken(
   if (resp.status === 400) {
     // Still waiting for user to authenticate
     const error = data.error as string;
-    if (
-      error === "authorization_pending" ||
-      error === "slow_down"
-    ) {
+    if (error === "authorization_pending" || error === "slow_down") {
       return null;
+    }
+    if (error === "expired_token" || error === "invalid_grant") {
+      // Signal expiry cleanly so the route can return 410
+      const e = new Error(`Device code expired`) as Error & { code: string };
+      e.code = "expired_token";
+      throw e;
     }
     throw new Error(`Device code flow error: ${error}`);
   }
