@@ -1,8 +1,9 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import session from "express-session";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
+import jwt from "jsonwebtoken";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 
@@ -62,6 +63,21 @@ app.use(
     },
   }),
 );
+
+// JWT middleware: read auth_token cookie and attach decoded payload to req.user
+const JWT_SECRET = process.env.JWT_SECRET || "your-app-id-or-realm-identifier";
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  const token = req.cookies?.auth_token as string | undefined;
+  if (token) {
+    try {
+      const payload = jwt.verify(token, JWT_SECRET) as Record<string, unknown>;
+      (req as Record<string, unknown>).user = payload;
+    } catch {
+      // Invalid/expired token — leave req.user undefined; route handlers will 401
+    }
+  }
+  next();
+});
 
 app.use("/api", router);
 
