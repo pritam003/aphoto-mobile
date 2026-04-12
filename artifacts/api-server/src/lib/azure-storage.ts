@@ -63,20 +63,12 @@ export async function deleteBlob(blobName: string): Promise<void> {
   await blobClient.deleteIfExists();
 }
 
-// Returns a permanent, CDN-cached URL for reading a blob.
-// Container is public-read so no SAS is needed — CDN caches at edge globally.
+// Returns a direct public blob URL. Container is public-read so no SAS is needed.
 export function generateSasUrl(blobName: string): string {
   if (process.env.NODE_ENV !== "production") {
     return `/api/blobs/${blobName}`;
   }
 
-  const cdnEndpoint = process.env.CDN_ENDPOINT;
-  if (cdnEndpoint) {
-    // CDN URL — permanent, globally cached, no expiry
-    return `${cdnEndpoint}/${containerName}/${blobName}`;
-  }
-
-  // Fallback: direct blob storage URL (container is public-read)
   return `https://${accountName}.blob.core.windows.net/${containerName}/${blobName}`;
 }
 
