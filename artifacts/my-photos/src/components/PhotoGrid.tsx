@@ -200,7 +200,7 @@ function VideoFrameThumbnail({ src, alt, className }: { src: string; alt: string
 function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [thumb, setThumb] = useState<string | null>(null);
-  const [hovering, setHovering] = useState(false);
+  const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
     const video = document.createElement("video");
@@ -220,40 +220,42 @@ function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
     });
   }, [src]);
 
-  const handleMouseEnter = () => {
-    setHovering(true);
-    videoRef.current?.play().catch(() => {});
-  };
-  const handleMouseLeave = () => {
-    setHovering(false);
-    if (videoRef.current) {
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation(); // prevent lightbox from opening
+    if (!videoRef.current) return;
+    if (playing) {
       videoRef.current.pause();
       videoRef.current.currentTime = 0;
+      setPlaying(false);
+    } else {
+      videoRef.current.play().catch(() => {});
+      setPlaying(true);
     }
   };
 
   return (
-    <div className="w-full h-full" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+    <div className="w-full h-full cursor-pointer" onClick={handleClick}>
       {/* Still frame — hidden while video plays */}
       {thumb && (
         <img
           src={thumb}
           alt={alt}
-          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-150 ${hovering ? "opacity-0" : "opacity-100"}`}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-150 ${playing ? "opacity-0" : "opacity-100"}`}
         />
       )}
       {/* Video always in DOM (preload="none" avoids downloads), play/pause via ref */}
       <video
         ref={videoRef}
         src={src}
-        className={`w-full h-full object-cover transition-opacity duration-150 ${hovering ? "opacity-100" : "opacity-0"}`}
+        className={`w-full h-full object-cover transition-opacity duration-150 ${playing ? "opacity-100" : "opacity-0"}`}
         muted
         loop
         playsInline
         preload="none"
+        onEnded={() => setPlaying(false)}
       />
-      {/* Play badge — hidden while hovering */}
-      <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-150 ${hovering ? "opacity-0" : "opacity-100"}`}>
+      {/* Play badge — hidden while playing */}
+      <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-150 ${playing ? "opacity-0" : "opacity-100"}`}>
         <div className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center">
           <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
         </div>
