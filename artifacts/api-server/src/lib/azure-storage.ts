@@ -22,20 +22,23 @@ export function getContainerClient() {
   return getBlobServiceClient().getContainerClient(containerName);
 }
 
-// Cache the user delegation key — valid for up to 7 days, refresh 10 min before expiry
-let _delegationKey: UserDelegationKey | null = null;
+// Cache the user delegation key using a Promise so concurrent callers share one in-flight request
+let _delegationKeyPromise: Promise<UserDelegationKey> | null = null;
 let _delegationKeyExpiry: Date | null = null;
 
-async function getUserDelegationKey(expiresOn: Date): Promise<UserDelegationKey> {
+async function getUserDelegationKey(): Promise<UserDelegationKey> {
   const now = new Date();
   const tenMinutesFromNow = new Date(now.getTime() + 10 * 60 * 1000);
-  if (_delegationKey && _delegationKeyExpiry && _delegationKeyExpiry > tenMinutesFromNow) {
-    return _delegationKey;
+  if (_delegationKeyPromise && _delegationKeyExpiry && _delegationKeyExpiry > tenMinutesFromNow) {
+    return _delegationKeyPromise;
   }
-  const keyExpiry = new Date(now.getTime() + 6 * 60 * 60 * 1000); // 6hr key
-  _delegationKey = await getBlobServiceClient().getUserDelegationKey(now, keyExpiry);
+  // Round key window to the current hour so SAS signatures stay stable across concurrent calls
+  const keyStart = new Date(now);
+  keyStart.setMinutes(0, 0, 0);
+  const keyExpiry = new Date(keyStart.getTime() + 6 * 60 * 60 * 1000);
   _delegationKeyExpiry = keyExpiry;
-  return _delegationKey;
+  _delegationKeyPromise = getBlobServiceClient().getUserDelegationKey(keyStart, keyExpiry);
+  return _delegationKeyPromise;
 }
 
 export async function uploadBlob(
@@ -62,9 +65,12 @@ export async function generateSasUrl(blobName: string, expiresInSeconds = 86400)
     return `/api/blobs/${blobName}`;
   }
 
+  // Round startsOn to the current hour so the SAS signature is identical for all
+  // requests within the same hour — browser HTTP cache can then reuse cached images.
   const startsOn = new Date();
+  startsOn.setMinutes(0, 0, 0);
   const expiresOn = new Date(startsOn.getTime() + expiresInSeconds * 1000);
-  const userDelegationKey = await getUserDelegationKey(expiresOn);
+  const userDelegationKey = await getUserDelegationKey();
 
   const sasParams = generateBlobSASQueryParameters(
     {
@@ -91,7 +97,7 @@ export async function generateUploadSasUrl(blobName: string, contentType: string
 
   const startsOn = new Date();
   const expiresOn = new Date(startsOn.getTime() + 30 * 60 * 1000); // 30 min to complete upload
-  const userDelegationKey = await getUserDelegationKey(expiresOn);
+  const userDelegationKey = await getUserDelegationKey();
 
   const sasParams = generateBlobSASQueryParameters(
     {

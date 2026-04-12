@@ -96,23 +96,26 @@ router.get("/photos", async (req: any, res) => {
   }
 
   const photosWithUrls = await Promise.all(
-    photos.map(async (photo: any) => ({
-      id: photo.id,
-      filename: photo.filename,
-      description: photo.description,
-      contentType: photo.contentType,
-      size: photo.size,
-      width: photo.width,
-      height: photo.height,
-      url: await generateSasUrl(photo.blobName, 3600),
-      thumbnailUrl: await generateSasUrl(photo.blobName, 3600),
-      favorite: photo.favorite,
-      trashed: photo.trashed,
-      trashedAt: photo.trashedAt,
-      uploadedAt: photo.uploadedAt,
-      takenAt: photo.takenAt,
-      albums: [],
-    })),
+    photos.map(async (photo: any) => {
+      const url = await generateSasUrl(photo.blobName);
+      return {
+        id: photo.id,
+        filename: photo.filename,
+        description: photo.description,
+        contentType: photo.contentType,
+        size: photo.size,
+        width: photo.width,
+        height: photo.height,
+        url,
+        thumbnailUrl: url,
+        favorite: photo.favorite,
+        trashed: photo.trashed,
+        trashedAt: photo.trashedAt,
+        uploadedAt: photo.uploadedAt,
+        takenAt: photo.takenAt,
+        albums: [],
+      };
+    }),
   );
 
   res.json({ photos: photosWithUrls, total: photosWithUrls.length });
@@ -204,7 +207,7 @@ router.post("/photos", upload.single("file"), async (req: any, res) => {
     }
   }
 
-  const url = await generateSasUrl(blobName, 3600);
+  const url = await generateSasUrl(blobName);
   res.status(201).json({
     ...photo,
     url,
@@ -221,7 +224,7 @@ router.get("/photos/:id/url", async (req: any, res) => {
     .where(and(eq(photosTable.id, req.params.id), eq(photosTable.userId, userId)));
 
   if (!photo) return res.status(404).json({ error: "Not found" });
-  const url = await generateSasUrl(photo.blobName, 3600);
+  const url = await generateSasUrl(photo.blobName);
   res.json({ url });
 });
 
@@ -234,7 +237,7 @@ router.get("/photos/:id", async (req: any, res) => {
 
   if (!photo) return res.status(404).json({ error: "Not found" });
 
-  const url = await generateSasUrl(photo.blobName, 3600);
+  const url = await generateSasUrl(photo.blobName);
   res.json({ ...photo, url, thumbnailUrl: url, albums: [] });
 });
 
@@ -250,7 +253,7 @@ router.patch("/photos/:id/favorite", async (req: any, res) => {
 
   if (!photo) return res.status(404).json({ error: "Not found" });
 
-  const url = await generateSasUrl(photo.blobName, 3600);
+  const url = await generateSasUrl(photo.blobName);
   res.json({ ...photo, url, thumbnailUrl: url, albums: [] });
 });
 
@@ -266,7 +269,7 @@ router.patch("/photos/:id/trash", async (req: any, res) => {
 
   if (!photo) return res.status(404).json({ error: "Not found" });
 
-  const url = await generateSasUrl(photo.blobName, 3600);
+  const url = await generateSasUrl(photo.blobName);
   res.json({ ...photo, url, thumbnailUrl: url, albums: [] });
 });
 
@@ -282,7 +285,7 @@ router.patch("/photos/:id/hide", async (req: any, res) => {
 
   if (!photo) return res.status(404).json({ error: "Not found" });
 
-  const url = await generateSasUrl(photo.blobName, 3600);
+  const url = await generateSasUrl(photo.blobName);
   res.json({ ...photo, url, thumbnailUrl: url, albums: [] });
 });
 
