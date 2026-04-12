@@ -63,31 +63,21 @@ export async function deleteBlob(blobName: string): Promise<void> {
   await blobClient.deleteIfExists();
 }
 
-export async function generateSasUrl(blobName: string, expiresInSeconds = 86400): Promise<string> {
+// Returns a permanent, CDN-cached URL for reading a blob.
+// Container is public-read so no SAS is needed — CDN caches at edge globally.
+export function generateSasUrl(blobName: string): string {
   if (process.env.NODE_ENV !== "production") {
     return `/api/blobs/${blobName}`;
   }
 
-  // Round startsOn to the current hour so the SAS signature is identical for all
-  // requests within the same hour — browser HTTP cache can then reuse cached images.
-  const startsOn = new Date();
-  startsOn.setMinutes(0, 0, 0);
-  const expiresOn = new Date(startsOn.getTime() + expiresInSeconds * 1000);
-  const userDelegationKey = await getUserDelegationKey();
+  const cdnEndpoint = process.env.CDN_ENDPOINT;
+  if (cdnEndpoint) {
+    // CDN URL — permanent, globally cached, no expiry
+    return `${cdnEndpoint}/${containerName}/${blobName}`;
+  }
 
-  const sasParams = generateBlobSASQueryParameters(
-    {
-      containerName,
-      blobName,
-      permissions: BlobSASPermissions.parse("r"),
-      startsOn,
-      expiresOn,
-    },
-    userDelegationKey,
-    accountName,
-  );
-
-  return `https://${accountName}.blob.core.windows.net/${containerName}/${blobName}?${sasParams.toString()}`;
+  // Fallback: direct blob storage URL (container is public-read)
+  return `https://${accountName}.blob.core.windows.net/${containerName}/${blobName}`;
 }
 
 // Generate a write-only SAS URL so the browser can upload directly to Blob Storage

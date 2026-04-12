@@ -43,7 +43,7 @@ router.get("/albums", async (req: any, res) => {
 
         photoCount = activePhotos.length;
         if (activePhotos.length > 0) {
-          coverUrl = await generateSasUrl(activePhotos[0].blobName, 3600);
+          coverUrl = generateSasUrl(activePhotos[0].blobName, 3600);
         }
       }
 
@@ -139,7 +139,7 @@ router.get("/albums/:id/photos", async (req: any, res) => {
     photoIds.map(async (photoId: string) => {
       const [photo] = await db.select().from(photosTable).where(and(eq(photosTable.id, photoId), eq(photosTable.trashed, false)));
       if (!photo) return null;
-      const url = await generateSasUrl(photo.blobName, 3600);
+      const url = generateSasUrl(photo.blobName, 3600);
       return { ...photo, url, thumbnailUrl: url, albums: [req.params.id] };
     }),
   );

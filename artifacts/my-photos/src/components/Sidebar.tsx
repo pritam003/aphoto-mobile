@@ -18,7 +18,9 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark }: Sideb
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const logout = useAuthLogout();
-  const { data: stats } = useGetPhotoStats();
+  const { data: stats, isLoading: statsLoading } = useGetPhotoStats({
+    query: { staleTime: 10 * 60 * 1000 },
+  });
 
   const handleLogout = async () => {
     await logout.mutateAsync();
@@ -102,8 +104,12 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark }: Sideb
                   <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-primary" : "text-sidebar-foreground/70 group-hover:text-primary/70"}`} />
                   {!collapsed && label}
                 </div>
-                {!collapsed && count !== undefined && count > 0 && (
-                  <span className="text-xs text-muted-foreground tabular-nums">{count}</span>
+                {!collapsed && (
+                  <span className="text-xs text-muted-foreground tabular-nums min-w-[1.5rem] text-right">
+                    {statsLoading
+                      ? <span className="inline-block w-5 h-2.5 bg-muted-foreground/15 animate-pulse rounded" />
+                      : count !== undefined && count > 0 ? count : null}
+                  </span>
                 )}
                 {collapsed && count !== undefined && count > 0 && (
                   <span className="absolute -top-1 -right-1 hidden" />

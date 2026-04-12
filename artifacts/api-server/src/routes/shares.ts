@@ -54,7 +54,7 @@ router.get("/shares/:token", async (req, res) => {
 
   if (!photo) return res.status(404).json({ error: "Photo not found" });
 
-  const url = await generateSasUrl(photo.blobName, 3600);
+  const url = generateSasUrl(photo.blobName, 3600);
   res.json({
     photo: { ...photo, url, thumbnailUrl: url, albums: [] },
     expiresAt: link.expiresAt,
