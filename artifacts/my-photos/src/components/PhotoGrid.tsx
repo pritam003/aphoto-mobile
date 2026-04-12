@@ -234,7 +234,7 @@ function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
 
   return (
     <div className="w-full h-full" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
-      {/* Still frame shown by default, hidden while video plays */}
+      {/* Still frame — hidden while video plays */}
       {thumb && (
         <img
           src={thumb}
@@ -242,18 +242,16 @@ function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
           className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-150 ${hovering ? "opacity-0" : "opacity-100"}`}
         />
       )}
-      {/* Video element — loads lazily, plays only on hover */}
-      {hovering && (
-        <video
-          ref={videoRef}
-          src={src}
-          className="w-full h-full object-cover"
-          muted
-          loop
-          playsInline
-          autoPlay
-        />
-      )}
+      {/* Video always in DOM (preload="none" avoids downloads), play/pause via ref */}
+      <video
+        ref={videoRef}
+        src={src}
+        className={`w-full h-full object-cover transition-opacity duration-150 ${hovering ? "opacity-100" : "opacity-0"}`}
+        muted
+        loop
+        playsInline
+        preload="none"
+      />
       {/* Play badge — hidden while hovering */}
       <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-150 ${hovering ? "opacity-0" : "opacity-100"}`}>
         <div className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center">
