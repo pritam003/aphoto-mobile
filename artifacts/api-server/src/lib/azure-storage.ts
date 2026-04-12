@@ -42,9 +42,12 @@ export async function deleteBlob(blobName: string): Promise<void> {
 }
 
 export async function generateSasUrl(blobName: string, expiresInSeconds = 3600): Promise<string> {
-  // Return a relative URL so it works through the Vite dev proxy (which carries the auth cookie).
-  // In production the API and frontend are on the same origin, so relative URLs work there too.
-  return `/api/blobs/${blobName}`;
+  // In production, the API and SWA are on different origins, so we need the full API URL.
+  // In development, no base URL is needed (Vite proxy handles /api/blobs/*).
+  const apiBase = process.env.NODE_ENV === "production"
+    ? (process.env.API_SELF_URL || "")
+    : "";
+  return `${apiBase}/api/blobs/${blobName}`;
 }
 
 export async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
