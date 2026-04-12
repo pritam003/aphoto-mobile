@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Heart, FolderPlus, Check, FolderMinus, Trash2, Download, X } from "lucide-react";
+import { Heart, FolderPlus, Check, FolderMinus, Trash2, Download, X, EyeOff, Eye } from "lucide-react";
 import { groupPhotosByDate } from "@/lib/api";
 import Lightbox from "./Lightbox";
 import { useListAlbums, useAddPhotoToAlbum, useTrashPhoto, getListAlbumsQueryKey, getListAlbumPhotosQueryKey, getListPhotosQueryKey, getGetPhotoStatsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { API_BASE } from "@/lib/api";
 
 interface PhotoGridProps {
   photos: any[];
@@ -11,9 +12,11 @@ interface PhotoGridProps {
   onRemoveFromAlbum?: (photoId: string) => void;
   onTrash?: (photoId: string) => void;
   onBulkTrash?: (ids: string[]) => Promise<void>;
+  onHide?: (photoId: string) => void;
+  onBulkHide?: (ids: string[]) => Promise<void>;
 }
 
-export default function PhotoGrid({ photos, emptyMessage = "No photos yet", onRemoveFromAlbum, onTrash, onBulkTrash }: PhotoGridProps) {
+export default function PhotoGrid({ photos, emptyMessage = "No photos yet", onRemoveFromAlbum, onTrash, onBulkTrash, onHide, onBulkHide }: PhotoGridProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
@@ -59,6 +62,25 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", onRe
     setSelectedIds(new Set());
   };
 
+  const handleBulkHide = async () => {
+    const ids = Array.from(selectedIds);
+    if (onBulkHide) {
+      await onBulkHide(ids);
+    } else {
+      await Promise.all(ids.map(id =>
+        fetch(`${API_BASE}/photos/${id}/hide`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ hidden: true }),
+        })
+      ));
+      queryClient.invalidateQueries({ queryKey: getListPhotosQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
+    }
+    setSelectedIds(new Set());
+  };
+
   if (photos.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
@@ -84,6 +106,7 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", onRe
                   onClick={() => setLightboxIndex(startIndex + i)}
                   onRemoveFromAlbum={onRemoveFromAlbum}
                   onTrash={onTrash}
+                  onHide={onHide}
                   selected={selectedIds.has(photo.id)}
                   selecting={selecting}
                   onToggleSelect={handleToggleSelect}
@@ -121,6 +144,13 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", onRe
             Download
           </button>
           <button
+            onClick={handleBulkHide}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+          >
+            <EyeOff className="w-3.5 h-3.5" />
+            Hide
+          </button>
+          <button
             onClick={handleBulkTrash}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors"
           >
@@ -140,11 +170,12 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", onRe
   );
 }
 
-function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, selected, selecting, onToggleSelect }: {
+function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, selected, selecting, onToggleSelect }: {
   photo: any;
   onClick: () => void;
   onRemoveFromAlbum?: (photoId: string) => void;
   onTrash?: (photoId: string) => void;
+  onHide?: (photoId: string) => void;
   selected: boolean;
   selecting: boolean;
   onToggleSelect: (id: string) => void;
@@ -225,6 +256,18 @@ function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, selected, 
               title="Remove from album"
             >
               <FolderMinus className="w-3.5 h-3.5 text-white" />
+            </div>
+          )}
+          {onHide && (
+            <div
+              onClick={e => { e.stopPropagation(); onHide(photo.id); }}
+              className="bg-black/60 hover:bg-black/80 rounded-md p-1 cursor-pointer"
+              title={photo.hidden ? "Unhide photo" : "Hide photo"}
+            >
+              {photo.hidden
+                ? <Eye className="w-3.5 h-3.5 text-white" />
+                : <EyeOff className="w-3.5 h-3.5 text-white" />
+              }
             </div>
           )}
           {onTrash && (

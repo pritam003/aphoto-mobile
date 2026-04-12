@@ -15,6 +15,7 @@ export const photosTable = pgTable("photos", {
   favorite: boolean("favorite").default(false).notNull(),
   trashed: boolean("trashed").default(false).notNull(),
   trashedAt: timestamp("trashed_at"),
+  hidden: boolean("hidden").default(false).notNull(),
   uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
   takenAt: timestamp("taken_at"),
 });

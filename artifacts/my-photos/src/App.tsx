@@ -8,6 +8,7 @@ import FavoritesPage from "@/pages/favorites";
 import AlbumsPage from "@/pages/albums";
 import AlbumDetailPage from "@/pages/album-detail";
 import TrashPage from "@/pages/trash";
+import ArchivePage from "@/pages/archive";
 import LoginPage from "@/pages/login";
 import SharePage from "@/pages/share";
 import NotFound from "@/pages/not-found";
@@ -69,6 +70,7 @@ function AppLayout() {
           <Route path="/albums" component={AlbumsPage} />
           <Route path="/albums/:id" component={AlbumDetailPage} />
           <Route path="/trash" component={TrashPage} />
+          <Route path="/archive" component={ArchivePage} />
           <Route component={NotFound} />
         </Switch>
       </main>

@@ -19,12 +19,23 @@ export default function LibraryPage() {
     debounceRef.current = setTimeout(() => setDebouncedSearch(val), 400);
   };
 
-  const params = { ...(debouncedSearch ? { search: debouncedSearch } : {}), trashed: false };
+  const params = { ...(debouncedSearch ? { search: debouncedSearch } : {}), trashed: false, hidden: false };
   const { data, isLoading } = useListPhotos(params as any, {
     query: { queryKey: getListPhotosQueryKey(params as any) },
   });
 
   const photos = data?.photos ?? [];
+
+  const handleHidePhoto = async (id: string) => {
+    await fetch(`${API_BASE}/photos/${id}/hide`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ hidden: true }),
+    });
+    queryClient.invalidateQueries({ queryKey: getListPhotosQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
+  };
 
   const handleGlobalDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
@@ -83,6 +94,7 @@ export default function LibraryPage() {
         ) : (
           <PhotoGrid
             photos={photos}
+            onHide={handleHidePhoto}
             emptyMessage={search ? "No photos match your search" : "Upload your first photo using the button in the sidebar or by dropping files here"}
           />
         )}

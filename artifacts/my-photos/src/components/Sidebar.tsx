@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Images, Heart, BookImage, Trash2, LogOut, Sun, Moon, Upload } from "lucide-react";
+import { Images, Heart, BookImage, Trash2, LogOut, Sun, Moon, Upload, EyeOff } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAuthLogout, useGetPhotoStats } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -29,6 +29,7 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark }: Sideb
     { href: "/", icon: Images, label: "Photos", count: stats?.total },
     { href: "/favorites", icon: Heart, label: "Favorites", count: stats?.favorites },
     { href: "/albums", icon: BookImage, label: "Albums", count: stats?.albums },
+    { href: "/archive", icon: EyeOff, label: "Archive", count: (stats as any)?.hidden },
     { href: "/trash", icon: Trash2, label: "Trash", count: stats?.trashed },
   ];
 

@@ -20,10 +20,11 @@ router.use(requireAuth);
 
 router.get("/photos/stats", async (req: any, res) => {
   const userId = req.currentUser.id;
-  const [all, favorites, trashed, albumCount] = await Promise.all([
-    db.select({ size: photosTable.size }).from(photosTable).where(and(eq(photosTable.userId, userId), eq(photosTable.trashed, false))),
-    db.select({ id: photosTable.id }).from(photosTable).where(and(eq(photosTable.userId, userId), eq(photosTable.favorite, true), eq(photosTable.trashed, false))),
+  const [all, favorites, trashed, hidden, albumCount] = await Promise.all([
+    db.select({ size: photosTable.size }).from(photosTable).where(and(eq(photosTable.userId, userId), eq(photosTable.trashed, false), eq(photosTable.hidden, false))),
+    db.select({ id: photosTable.id }).from(photosTable).where(and(eq(photosTable.userId, userId), eq(photosTable.favorite, true), eq(photosTable.trashed, false), eq(photosTable.hidden, false))),
     db.select({ id: photosTable.id }).from(photosTable).where(and(eq(photosTable.userId, userId), eq(photosTable.trashed, true))),
+    db.select({ id: photosTable.id }).from(photosTable).where(and(eq(photosTable.userId, userId), eq(photosTable.hidden, true), eq(photosTable.trashed, false))),
     db.execute(`SELECT COUNT(DISTINCT album_id) AS cnt FROM albums WHERE user_id = $1`, [userId]).catch(() => ({ rows: [{ cnt: 0 }] })),
   ]);
   const totalSize = all.reduce((acc: number, p: { size: number }) => acc + (p.size || 0), 0);
@@ -31,6 +32,7 @@ router.get("/photos/stats", async (req: any, res) => {
     total: all.length,
     favorites: favorites.length,
     trashed: trashed.length,
+    hidden: hidden.length,
     albums: Number((albumCount as any).rows?.[0]?.cnt ?? 0),
     totalSize,
   });
@@ -38,7 +40,7 @@ router.get("/photos/stats", async (req: any, res) => {
 
 router.get("/photos", async (req: any, res) => {
   const userId = req.currentUser.id;
-  const { search, album, favorite, trashed, limit = "100" } = req.query as Record<string, string>;
+  const { search, album, favorite, trashed, hidden, limit = "100" } = req.query as Record<string, string>;
 
   const conditions = [eq(photosTable.userId, userId)];
 
@@ -46,6 +48,12 @@ router.get("/photos", async (req: any, res) => {
     conditions.push(eq(photosTable.trashed, true));
   } else {
     conditions.push(eq(photosTable.trashed, false));
+  }
+
+  if (hidden === "true") {
+    conditions.push(eq(photosTable.hidden, true));
+  } else {
+    conditions.push(eq(photosTable.hidden, false));
   }
 
   if (favorite === "true") {
@@ -253,6 +261,22 @@ router.patch("/photos/:id/trash", async (req: any, res) => {
   const [photo] = await db
     .update(photosTable)
     .set({ trashed, trashedAt: trashed ? new Date() : null })
+    .where(and(eq(photosTable.id, req.params.id), eq(photosTable.userId, userId)))
+    .returning();
+
+  if (!photo) return res.status(404).json({ error: "Not found" });
+
+  const url = await generateSasUrl(photo.blobName, 3600);
+  res.json({ ...photo, url, thumbnailUrl: url, albums: [] });
+});
+
+router.patch("/photos/:id/hide", async (req: any, res) => {
+  const userId = req.currentUser.id;
+  const { hidden } = req.body as { hidden: boolean };
+
+  const [photo] = await db
+    .update(photosTable)
+    .set({ hidden })
     .where(and(eq(photosTable.id, req.params.id), eq(photosTable.userId, userId)))
     .returning();
 
