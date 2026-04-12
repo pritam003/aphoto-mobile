@@ -1,35 +1,35 @@
 import { useState, useEffect, useRef } from "react";
-import { X, ExternalLink, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { X, CheckCircle, AlertCircle, Loader2, FolderDown } from "lucide-react";
 import { useLocation } from "wouter";
 import { API_BASE } from "@/lib/api";
 
 interface GoogleImportModalProps {
   onClose: () => void;
-  /** If set, an import is already in progress (from OAuth callback redirect) */
   activeImportId?: string | null;
 }
 
-type ImportStatus =
-  | { status: "running"; albumName: string; total: number; imported: number; errors: number }
-  | { status: "done"; albumName: string; albumId?: string; total: number; imported: number; errors: number; message?: string }
-  | { status: "error"; albumName: string; message: string; total: number; imported: number; errors: number };
+interface ImportStatus {
+  status: "running" | "done" | "error";
+  albumName: string;
+  albumId?: string;
+  total: number;
+  imported: number;
+  errors: number;
+  message?: string;
+}
 
 export default function GoogleImportModal({ onClose, activeImportId }: GoogleImportModalProps) {
   const [, navigate] = useLocation();
   const [url, setUrl] = useState("");
   const [urlError, setUrlError] = useState("");
-  const [step, setStep] = useState<"input" | "authorizing" | "importing">(
-    activeImportId ? "importing" : "input"
-  );
   const [importId, setImportId] = useState<string | null>(activeImportId ?? null);
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
-  const [notConfigured, setNotConfigured] = useState(false);
+  const [starting, setStarting] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Poll import status while running
   useEffect(() => {
     if (!importId) return;
-    setStep("importing");
 
     const poll = async () => {
       try {
@@ -41,7 +41,7 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
           clearInterval(pollRef.current!);
           pollRef.current = null;
         }
-      } catch {/* network hiccup — keep polling */}
+      } catch {/* keep polling on network hiccup */}
     };
 
     poll();
@@ -51,30 +51,26 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
 
   const handleStartImport = async () => {
     setUrlError("");
-    if (!url.trim()) { setUrlError("Paste a Google Photos album URL first."); return; }
+    if (!url.trim()) { setUrlError("Paste a Google Photos album link first."); return; }
 
-    setStep("authorizing");
+    setStarting(true);
     try {
-      const res = await fetch(`${API_BASE}/google/auth-url`, {
+      const res = await fetch(`${API_BASE}/google/import`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ albumUrl: url.trim() }),
       });
-      const data = await res.json() as { authUrl?: string; error?: string };
-
-      if (!res.ok) {
-        if (res.status === 503) setNotConfigured(true);
-        setUrlError(data.error ?? "Failed to start import");
-        setStep("input");
+      const data = await res.json() as { importId?: string; error?: string };
+      if (!res.ok || !data.importId) {
+        setUrlError(data.error ?? "Failed to start import. Make sure the album is publicly shared.");
         return;
       }
-
-      // Open Google OAuth in the same tab — callback will redirect back with ?import_id=
-      window.location.href = data.authUrl!;
+      setImportId(data.importId);
     } catch {
-      setUrlError("Network error — try again.");
-      setStep("input");
+      setUrlError("Network error — please try again.");
+    } finally {
+      setStarting(false);
     }
   };
 
@@ -88,13 +84,7 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="flex items-center gap-2.5">
-            {/* Google Photos colour icon */}
-            <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">
-              <path d="M12 12h9.5a9.5 9.5 0 1 1-9.5-9.5V12z" fill="#4285F4"/>
-              <path d="M12 12V2.5A9.5 9.5 0 0 1 21.5 12H12z" fill="#34A853"/>
-              <path d="M12 12H2.5A9.5 9.5 0 0 1 12 2.5V12z" fill="#FBBC05"/>
-              <path d="M12 12v9.5A9.5 9.5 0 0 1 2.5 12H12z" fill="#EA4335"/>
-            </svg>
+            <FolderDown className="w-5 h-5 text-primary" />
             <h2 className="text-base font-semibold text-foreground">Import from Google Photos</h2>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
@@ -103,20 +93,12 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
         </div>
 
         <div className="p-6 space-y-5">
-          {/* Not configured warning */}
-          {notConfigured && (
-            <div className="flex gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-amber-600 dark:text-amber-400">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>Google OAuth is not configured on this server. Ask your admin to set <code className="font-mono text-xs">GOOGLE_CLIENT_ID</code> and <code className="font-mono text-xs">GOOGLE_CLIENT_SECRET</code>.</span>
-            </div>
-          )}
-
-          {/* Step: input */}
-          {step === "input" && (
+          {/* URL input — shown until import starts */}
+          {!importId && (
             <>
               <p className="text-sm text-muted-foreground">
                 Paste any Google Photos album link you have access to — yours or shared with you.
-                You'll be asked to sign in to Google to allow read access.
+                The album must be publicly shared (no sign-in required).
               </p>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-foreground">Album URL</label>
@@ -124,41 +106,33 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
                   type="url"
                   value={url}
                   onChange={e => { setUrl(e.target.value); setUrlError(""); }}
-                  placeholder="https://photos.google.com/album/..."
+                  placeholder="https://photos.app.goo.gl/..."
                   className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                   onKeyDown={e => e.key === "Enter" && handleStartImport()}
                 />
                 {urlError && <p className="text-xs text-destructive">{urlError}</p>}
               </div>
-              <div className="text-xs text-muted-foreground space-y-1 bg-muted/40 rounded-lg p-3">
+              <div className="text-xs text-muted-foreground bg-muted/40 rounded-lg p-3 space-y-1">
                 <p className="font-medium text-foreground">Supported URL formats:</p>
+                <p><code className="font-mono">photos.app.goo.gl/...</code></p>
                 <p><code className="font-mono">photos.google.com/album/...</code></p>
                 <p><code className="font-mono">photos.google.com/share/...</code></p>
               </div>
               <button
                 onClick={handleStartImport}
-                disabled={!url.trim()}
+                disabled={starting || !url.trim()}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                <ExternalLink className="w-4 h-4" />
-                Authorize with Google &amp; Import
+                {starting ? <><Loader2 className="w-4 h-4 animate-spin" /> Starting…</> : "Import Photos"}
               </button>
             </>
           )}
 
-          {/* Step: authorizing (redirect in progress) */}
-          {step === "authorizing" && (
-            <div className="flex flex-col items-center gap-3 py-4">
-              <Loader2 className="w-8 h-8 text-primary animate-spin" />
-              <p className="text-sm text-muted-foreground">Redirecting to Google…</p>
-            </div>
-          )}
-
-          {/* Step: importing (polling) */}
-          {step === "importing" && (
+          {/* Progress — shown while import is running or done */}
+          {importId && (
             <div className="space-y-4">
               {!importStatus && (
-                <div className="flex flex-col items-center gap-3 py-4">
+                <div className="flex flex-col items-center gap-3 py-6">
                   <Loader2 className="w-8 h-8 text-primary animate-spin" />
                   <p className="text-sm text-muted-foreground">Starting import…</p>
                 </div>
@@ -168,8 +142,8 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
                 <>
                   <div className="flex items-start gap-3">
                     {importStatus.status === "running" && <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0 mt-0.5" />}
-                    {importStatus.status === "done" && <CheckCircle className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />}
-                    {importStatus.status === "error" && <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />}
+                    {importStatus.status === "done"    && <CheckCircle className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />}
+                    {importStatus.status === "error"   && <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">{importStatus.albumName}</p>
                       {importStatus.status === "running" && (
@@ -179,8 +153,7 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
                       )}
                       {importStatus.status === "done" && (
                         <p className="text-xs text-muted-foreground">
-                          {importStatus.imported} imported{importStatus.errors > 0 ? `, ${importStatus.errors} failed` : ""}
-                          {importStatus.message ? ` — ${importStatus.message}` : ""}
+                          {importStatus.imported} imported{importStatus.errors > 0 ? `, ${importStatus.errors} skipped` : ""}
                         </p>
                       )}
                       {importStatus.status === "error" && (
@@ -190,34 +163,32 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
                   </div>
 
                   {importStatus.total > 0 && (
-                    <div className="space-y-1">
-                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            importStatus.status === "error" ? "bg-destructive" :
-                            importStatus.status === "done" ? "bg-green-500" : "bg-primary"
-                          }`}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                      <p className="text-xs text-muted-foreground text-right">{pct}%</p>
+                    <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          importStatus.status === "error" ? "bg-destructive" :
+                          importStatus.status === "done"  ? "bg-green-500" : "bg-primary"
+                        }`}
+                        style={{ width: `${importStatus.status === "done" ? 100 : pct}%` }}
+                      />
                     </div>
                   )}
 
                   {importStatus.status === "done" && importStatus.albumId && (
                     <button
                       onClick={() => { onClose(); navigate(`/albums/${importStatus.albumId}`); }}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                      className="w-full py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium transition-colors"
                     >
                       View imported album
                     </button>
                   )}
-                  {importStatus.status !== "running" && (
+
+                  {importStatus.status === "error" && (
                     <button
-                      onClick={onClose}
-                      className="w-full px-4 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-muted transition-colors"
+                      onClick={() => { setImportId(null); setImportStatus(null); setUrl(""); }}
+                      className="w-full py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted transition-colors"
                     >
-                      Close
+                      Try again
                     </button>
                   )}
                 </>

@@ -1,21 +1,10 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
-import path from "path";
 import { db, photosTable, albumsTable, albumPhotosTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
-import { uploadBlob, generateSasUrl } from "../lib/azure-storage.js";
+import { uploadBlob } from "../lib/azure-storage.js";
 import { logger } from "../lib/logger.js";
 
 const router = Router();
-
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const APP_URL = process.env.APP_URL || "";
-const REDIRECT_URI = `${APP_URL}/api/google/callback`;
-
-// In-memory state store: stateKey → { albumUrl, userId }
-// Entries auto-expire after 10 minutes
-const pendingStates = new Map<string, { albumUrl: string; userId: string }>();
 
 // In-memory import status: importId → status
 interface ImportStatus {
@@ -36,120 +25,90 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-function parseGoogleAlbumUrl(url: string): { type: "album" | "shared"; id: string } | null {
+function isGooglePhotosUrl(url: string): boolean {
   try {
     const u = new URL(url);
-    if (!u.hostname.includes("google.com")) return null;
-    // /album/ID  or  /lr/album/ID  or  /u/0/album/ID
-    const albumMatch = u.pathname.match(/\/album\/([^/?#]+)/);
-    if (albumMatch) return { type: "album", id: albumMatch[1] };
-    // /share/TOKEN  or  /photo/AF1Qip... (single photo — not supported)
-    const shareMatch = u.pathname.match(/\/share(?:\/album)?\/([^/?#]+)/);
-    if (shareMatch) return { type: "shared", id: shareMatch[1] };
-    return null;
+    return (
+      u.hostname === "photos.app.goo.gl" ||
+      u.hostname === "photos.google.com" ||
+      u.hostname === "goo.gl"
+    );
   } catch {
-    return null;
+    return false;
   }
 }
 
-async function fetchAllMediaItems(albumId: string, accessToken: string): Promise<any[]> {
-  const items: any[] = [];
-  let pageToken: string | undefined;
-  do {
-    const body: Record<string, unknown> = { albumId, pageSize: 100 };
-    if (pageToken) body.pageToken = pageToken;
-    const res = await fetch("https://photoslibrary.googleapis.com/v1/mediaItems:search", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`Google Photos API error (${res.status}): ${err}`);
-    }
-    const data = await res.json() as { mediaItems?: any[]; nextPageToken?: string };
-    if (data.mediaItems) items.push(...data.mediaItems);
-    pageToken = data.nextPageToken;
-  } while (pageToken);
-  return items;
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
+/**
+ * Fetch a public Google Photos shared album page and extract photo base-URLs.
+ * Google embeds all photo data in the page HTML as lh3.googleusercontent.com/pw/... URLs.
+ */
+async function scrapePublicAlbum(albumUrl: string): Promise<{ title: string; photoUrls: string[] }> {
+  const res = await fetch(albumUrl, {
+    headers: {
+      "User-Agent": BROWSER_UA,
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+    redirect: "follow",
+  });
+  if (!res.ok) {
+    throw new Error(`Could not fetch album page: HTTP ${res.status}. Make sure the album is publicly shared.`);
+  }
+  const html = await res.text();
+
+  // Page title (strip " - Google Photos" suffix)
+  const titleMatch = html.match(/<title>([^<]*)<\/title>/i);
+  let title = titleMatch ? titleMatch[1].replace(/ ?[-–] ?Google Photos$/i, "").trim() : "";
+  if (!title) title = "Google Photos Import";
+
+  // Google Photos embeds image base-URLs as lh3.googleusercontent.com/pw/... in the page source
+  const urlPattern = /https:\/\/lh3\.googleusercontent\.com\/pw\/[A-Za-z0-9_\-]+/g;
+  const found = new Set(html.match(urlPattern) ?? []);
+
+  // Filter out small thumbnail variants already in the HTML (they often appear with size params inline)
+  // We keep just the base URLs; we'll append =d0 when downloading
+  const photoUrls = Array.from(found);
+
+  return { title, photoUrls };
 }
 
-async function runImport(importId: string, albumUrl: string, userId: string, accessToken: string) {
+async function runImport(importId: string, albumUrl: string, userId: string) {
   const status: ImportStatus = { status: "running", albumName: "Google Photos Import", total: 0, imported: 0, errors: 0 };
   importStatuses.set(importId, status);
 
   try {
-    const parsed = parseGoogleAlbumUrl(albumUrl)!;
-    let resolvedAlbumId = parsed.id;
-    let albumTitle = "Google Photos Import";
+    const { title, photoUrls } = await scrapePublicAlbum(albumUrl);
+    status.albumName = title;
+    status.total = photoUrls.length;
 
-    if (parsed.type === "shared") {
-      // Attempt to join the shared album to get a real albumId
-      const joinRes = await fetch("https://photoslibrary.googleapis.com/v1/sharedAlbums:join", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ shareToken: parsed.id }),
-      });
-      if (joinRes.ok) {
-        const joined = await joinRes.json() as { album?: { id: string; title?: string } };
-        if (joined.album) {
-          resolvedAlbumId = joined.album.id;
-          albumTitle = joined.album.title || albumTitle;
-        }
-      } else {
-        // Fall back: look up as a shared album directly
-        const sharedRes = await fetch(`https://photoslibrary.googleapis.com/v1/sharedAlbums/${parsed.id}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (sharedRes.ok) {
-          const shared = await sharedRes.json() as { id: string; title?: string };
-          resolvedAlbumId = shared.id;
-          albumTitle = shared.title || albumTitle;
-        }
-      }
-    } else {
-      // Own album — fetch title
-      const albumRes = await fetch(`https://photoslibrary.googleapis.com/v1/albums/${parsed.id}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (albumRes.ok) {
-        const albumData = await albumRes.json() as { title?: string };
-        albumTitle = albumData.title || albumTitle;
-      }
-    }
-
-    status.albumName = albumTitle;
-
-    const items = await fetchAllMediaItems(resolvedAlbumId, accessToken);
-    status.total = items.length;
-
-    if (items.length === 0) {
-      status.status = "done";
-      status.message = "No media items found in this album.";
+    if (photoUrls.length === 0) {
+      status.status = "error";
+      status.message = "No photos found. Make sure the album is publicly shared and try again.";
       return;
     }
 
     // Create album in our app
     const [newAlbum] = await db
       .insert(albumsTable)
-      .values({ userId, name: albumTitle })
+      .values({ userId, name: title })
       .returning();
     status.albumId = newAlbum.id;
 
-    for (const item of items) {
+    for (let i = 0; i < photoUrls.length; i++) {
       try {
-        const isVideo = !!item.mediaMetadata?.video;
-        const contentType = isVideo ? "video/mp4" : "image/jpeg";
-        const ext = isVideo ? ".mp4" : ".jpg";
-
-        // Append =d0 to get the full-resolution download
-        const downloadUrl = `${item.baseUrl}=d0`;
-        const photoRes = await fetch(downloadUrl);
+        // Append =d0 for full-resolution download
+        const downloadUrl = `${photoUrls[i]}=d0`;
+        const photoRes = await fetch(downloadUrl, {
+          headers: { "User-Agent": BROWSER_UA },
+        });
         if (!photoRes.ok) throw new Error(`Download failed: ${photoRes.status}`);
 
+        const contentType = photoRes.headers.get("content-type") ?? "image/jpeg";
+        const isVideo = contentType.startsWith("video/");
+        const ext = isVideo ? ".mp4" : ".jpg";
         const buffer = Buffer.from(await photoRes.arrayBuffer());
         const blobName = `${userId}/${newAlbum.id}/${randomUUID()}${ext}`;
 
@@ -159,13 +118,10 @@ async function runImport(importId: string, albumUrl: string, userId: string, acc
           .insert(photosTable)
           .values({
             userId,
-            filename: item.filename || `photo${ext}`,
+            filename: `photo_${i + 1}${ext}`,
             blobName,
             contentType,
             size: buffer.byteLength,
-            width: item.mediaMetadata?.width ? Number(item.mediaMetadata.width) : null,
-            height: item.mediaMetadata?.height ? Number(item.mediaMetadata.height) : null,
-            takenAt: item.mediaMetadata?.creationTime ? new Date(item.mediaMetadata.creationTime) : null,
           })
           .returning();
 
@@ -176,7 +132,7 @@ async function runImport(importId: string, albumUrl: string, userId: string, acc
 
         status.imported++;
       } catch (err: any) {
-        logger.error({ err: String(err), itemId: item.id }, "Failed to import photo");
+        logger.error({ err: String(err), url: photoUrls[i] }, "Failed to import photo");
         status.errors++;
       }
     }
@@ -189,80 +145,19 @@ async function runImport(importId: string, albumUrl: string, userId: string, acc
   }
 }
 
-// POST /api/google/auth-url — start OAuth flow
-router.post("/google/auth-url", requireAuth, (req: any, res) => {
-  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-    return res.status(503).json({
-      error: "Google import not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.",
+// POST /api/google/import — start a no-OAuth import from a public shared album
+router.post("/google/import", requireAuth, async (req: any, res) => {
+  const { albumUrl } = req.body as { albumUrl?: string };
+  if (!albumUrl?.trim()) return res.status(400).json({ error: "albumUrl required" });
+  if (!isGooglePhotosUrl(albumUrl.trim())) {
+    return res.status(400).json({
+      error: "Invalid URL. Paste a Google Photos shared album link (photos.app.goo.gl/... or photos.google.com/...).",
     });
   }
 
-  const { albumUrl } = req.body as { albumUrl?: string };
-  if (!albumUrl?.trim()) return res.status(400).json({ error: "albumUrl required" });
-  if (!parseGoogleAlbumUrl(albumUrl)) {
-    return res.status(400).json({ error: "Invalid Google Photos album URL. Paste a URL from photos.google.com." });
-  }
-
-  const state = randomUUID();
-  pendingStates.set(state, { albumUrl: albumUrl.trim(), userId: req.currentUser.id });
-  setTimeout(() => pendingStates.delete(state), 10 * 60 * 1000);
-  const params = new URLSearchParams({
-    client_id: GOOGLE_CLIENT_ID,
-    redirect_uri: REDIRECT_URI,
-    response_type: "code",
-    scope: [
-      "https://www.googleapis.com/auth/photoslibrary.readonly",
-      "https://www.googleapis.com/auth/photoslibrary.sharing",
-    ].join(" "),
-    access_type: "offline",
-    state,
-    prompt: "select_account consent",
-  });
-
-  res.json({ authUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
-});
-
-// GET /api/google/callback — OAuth callback from Google (browser redirect)
-router.get("/google/callback", async (req, res) => {
-  const { code, state, error } = req.query as Record<string, string>;
-  const frontendUrl = APP_URL || "http://localhost:5173";
-
-  if (error || !code || !state) {
-    return res.redirect(`${frontendUrl}/albums?import_error=${encodeURIComponent(error ?? "cancelled")}`);
-  }
-
-  const pending = pendingStates.get(state);
-  if (!pending) {
-    return res.redirect(`${frontendUrl}/albums?import_error=expired`);
-  }
-  pendingStates.delete(state);
-
-  // Exchange authorization code for access token
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code,
-      client_id: GOOGLE_CLIENT_ID!,
-      client_secret: GOOGLE_CLIENT_SECRET!,
-      redirect_uri: REDIRECT_URI,
-      grant_type: "authorization_code",
-    }).toString(),
-  });
-
-  if (!tokenRes.ok) {
-    const errText = await tokenRes.text();
-    logger.error({ errText }, "Google token exchange failed");
-    return res.redirect(`${frontendUrl}?import_error=auth_failed`);
-  }
-
-  const { access_token } = await tokenRes.json() as { access_token: string };
-
   const importId = randomUUID();
-  runImport(importId, pending.albumUrl, pending.userId, access_token).catch(console.error);
-
-  // Redirect back to the Albums page so the import modal auto-opens there
-  return res.redirect(`${frontendUrl}/albums?import_id=${importId}`);
+  runImport(importId, albumUrl.trim(), req.currentUser.id).catch(console.error);
+  res.json({ importId });
 });
 
 // GET /api/google/import/:id — poll import progress

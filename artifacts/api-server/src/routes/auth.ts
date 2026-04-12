@@ -201,6 +201,13 @@ router.post("/auth/device-code-status", async (req, res) => {
   }
 });
 
+router.get("/auth/config", (_req, res) => {
+  res.json({
+    google: !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
+    microsoft: true,
+  });
+});
+
 router.post("/auth/logout", (req, res) => {
   res.clearCookie("auth_token", {
     httpOnly: true,
