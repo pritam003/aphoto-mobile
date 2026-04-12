@@ -2,6 +2,7 @@ import { useCallback, useState, useRef } from "react";
 import { X, CloudUpload, CheckCircle, AlertCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListPhotosQueryKey, getGetPhotoStatsQueryKey, getListAlbumPhotosQueryKey, getListAlbumsQueryKey } from "@workspace/api-client-react";
+import { API_BASE } from "@/lib/api";
 
 interface UploadModalProps {
   onClose: () => void;
@@ -47,7 +48,7 @@ export default function UploadModal({ onClose, albumId, albumName }: UploadModal
         const formData = new FormData();
         formData.append("file", files[i].file);
         if (albumId) formData.append("albumId", albumId);
-        const res = await fetch("/api/photos", { method: "POST", body: formData, credentials: "include" });
+        const res = await fetch(`${API_BASE}/photos`, { method: "POST", body: formData, credentials: "include" });
         if (!res.ok) throw new Error(await res.text());
         setFiles(prev => prev.map((f, idx) => idx === i ? { ...f, status: "done" } : f));
       } catch (err) {

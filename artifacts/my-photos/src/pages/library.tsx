@@ -4,6 +4,7 @@ import { useListPhotos, getListPhotosQueryKey } from "@workspace/api-client-reac
 import PhotoGrid from "@/components/PhotoGrid";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetPhotoStatsQueryKey } from "@workspace/api-client-react";
+import { API_BASE } from "@/lib/api";
 
 export default function LibraryPage() {
   const [search, setSearch] = useState("");
@@ -32,7 +33,7 @@ export default function LibraryPage() {
     for (const file of files) {
       const formData = new FormData();
       formData.append("file", file);
-      await fetch("/api/photos", { method: "POST", body: formData, credentials: "include" });
+      await fetch(`${API_BASE}/photos`, { method: "POST", body: formData, credentials: "include" });
     }
     queryClient.invalidateQueries({ queryKey: getListPhotosQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });

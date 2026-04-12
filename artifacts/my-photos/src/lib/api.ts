@@ -1,4 +1,5 @@
-export const API_BASE = "/api";
+const _apiOrigin = import.meta.env.VITE_API_URL || "";
+export const API_BASE = `${_apiOrigin}/api`;
 
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";

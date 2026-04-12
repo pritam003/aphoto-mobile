@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
+import { API_BASE } from "@/lib/api";
 
 export default function LoginPage() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -23,7 +24,7 @@ export default function LoginPage() {
 
     const interval = setInterval(async () => {
       try {
-        const response = await fetch("/api/auth/device-code-status", {
+        const response = await fetch(`${API_BASE}/auth/device-code-status`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ device_code: deviceCode }),
@@ -57,7 +58,7 @@ export default function LoginPage() {
     setIsLoadingMs(true);
     setPollError(null);
     try {
-      const response = await fetch("/api/auth/login", {
+      const response = await fetch(`${API_BASE}/auth/login`, {
         credentials: "include",
       });
 
