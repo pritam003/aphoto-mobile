@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { X, CheckCircle, AlertCircle, Loader2, FolderDown } from "lucide-react";
+import { X, CheckCircle, AlertCircle, Loader2, FolderDown, ExternalLink } from "lucide-react";
 import { useLocation } from "wouter";
 import { API_BASE } from "@/lib/api";
 
@@ -9,22 +9,23 @@ interface GoogleImportModalProps {
 }
 
 interface ImportStatus {
-  status: "running" | "done" | "error";
+  status: "picking" | "importing" | "done" | "error";
   albumName: string;
   albumId?: string;
   total: number;
   imported: number;
   errors: number;
   message?: string;
+  pickerUri?: string;
 }
 
 export default function GoogleImportModal({ onClose, activeImportId }: GoogleImportModalProps) {
   const [, navigate] = useLocation();
-  const [url, setUrl] = useState("");
-  const [urlError, setUrlError] = useState("");
+  const [connectError, setConnectError] = useState("");
   const [importId, setImportId] = useState<string | null>(activeImportId ?? null);
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
   const [starting, setStarting] = useState(false);
+  const [pickerOpened, setPickerOpened] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Poll import status while running
@@ -37,7 +38,7 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
         if (!res.ok) return;
         const data = await res.json() as ImportStatus;
         setImportStatus(data);
-        if (data.status !== "running") {
+        if (data.status === "done" || data.status === "error") {
           clearInterval(pollRef.current!);
           pollRef.current = null;
         }
@@ -49,27 +50,24 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [importId]);
 
-  const handleStartImport = async () => {
-    setUrlError("");
-    if (!url.trim()) { setUrlError("Paste a Google Photos album link first."); return; }
-
+  const handleConnect = async () => {
+    setConnectError("");
     setStarting(true);
     try {
       const res = await fetch(`${API_BASE}/google/auth-url`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ albumUrl: url.trim() }),
+        body: "{}",
       });
       const data = await res.json() as { authUrl?: string; error?: string };
       if (!res.ok || !data.authUrl) {
-        setUrlError(data.error ?? "Failed to start import.");
+        setConnectError(data.error ?? "Failed to connect. Please try again.");
         return;
       }
-      // Redirect browser to Google OAuth consent screen
       window.location.href = data.authUrl;
     } catch {
-      setUrlError("Network error — please try again.");
+      setConnectError("Network error — please try again.");
     } finally {
       setStarting(false);
     }
@@ -94,60 +92,65 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
         </div>
 
         <div className="p-6 space-y-5">
-          {/* URL input — shown until import starts */}
+          {/* Connect step — shown until OAuth redirect */}
           {!importId && (
             <>
               <p className="text-sm text-muted-foreground">
-                Paste any Google Photos album link — yours or shared with you.
-                You'll be asked to sign in with Google to authorize the import.
+                Sign in with Google to open the Photos Picker and choose which photos to import into your library.
               </p>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground">Album URL</label>
-                <input
-                  type="url"
-                  value={url}
-                  onChange={e => { setUrl(e.target.value); setUrlError(""); }}
-                  placeholder="https://photos.app.goo.gl/..."
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  onKeyDown={e => e.key === "Enter" && handleStartImport()}
-                />
-                {urlError && <p className="text-xs text-destructive">{urlError}</p>}
-              </div>
-              <div className="text-xs text-muted-foreground bg-muted/40 rounded-lg p-3 space-y-1">
-                <p className="font-medium text-foreground">Supported URL formats:</p>
-                <p><code className="font-mono">photos.app.goo.gl/...</code></p>
-                <p><code className="font-mono">photos.google.com/album/...</code></p>
-                <p><code className="font-mono">photos.google.com/share/...</code></p>
-              </div>
+              {connectError && <p className="text-xs text-destructive">{connectError}</p>}
               <button
-                onClick={handleStartImport}
-                disabled={starting || !url.trim()}
+                onClick={handleConnect}
+                disabled={starting}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {starting ? <><Loader2 className="w-4 h-4 animate-spin" /> Redirecting…</> : "Continue with Google"}
+                {starting ? <><Loader2 className="w-4 h-4 animate-spin" /> Redirecting…</> : "Connect Google Photos"}
               </button>
             </>
           )}
 
-          {/* Progress — shown while import is running or done */}
+          {/* Progress — shown after OAuth redirect */}
           {importId && (
             <div className="space-y-4">
               {!importStatus && (
                 <div className="flex flex-col items-center gap-3 py-6">
                   <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                  <p className="text-sm text-muted-foreground">Starting import…</p>
+                  <p className="text-sm text-muted-foreground">Connecting…</p>
                 </div>
               )}
 
-              {importStatus && (
+              {/* Picking phase: user needs to open picker */}
+              {importStatus?.status === "picking" && (
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3">
+                    <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Waiting for photo selection</p>
+                      <p className="text-xs text-muted-foreground">Open the picker, select your photos, then click Done</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { window.open(importStatus.pickerUri!, "_blank"); setPickerOpened(true); }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    {pickerOpened ? "Reopen Google Photos Picker" : "Open Google Photos Picker"}
+                  </button>
+                  {pickerOpened && (
+                    <p className="text-xs text-center text-muted-foreground">Select your photos in Google Photos, click Done, then wait here — the import will start automatically.</p>
+                  )}
+                </div>
+              )}
+
+              {importStatus && importStatus.status !== "picking" && (
                 <>
                   <div className="flex items-start gap-3">
-                    {importStatus.status === "running" && <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0 mt-0.5" />}
-                    {importStatus.status === "done"    && <CheckCircle className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />}
-                    {importStatus.status === "error"   && <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />}
+                    {importStatus.status === "importing" && <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0 mt-0.5" />}
+                    {importStatus.status === "done"      && <CheckCircle className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />}
+                    {importStatus.status === "error"     && <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">{importStatus.albumName}</p>
-                      {importStatus.status === "running" && (
+                      {importStatus.status === "importing" && (
                         <p className="text-xs text-muted-foreground">
                           {importStatus.imported + importStatus.errors} / {importStatus.total} photos processed
                         </p>
@@ -186,7 +189,7 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
 
                   {importStatus.status === "error" && (
                     <button
-                      onClick={() => { setImportId(null); setImportStatus(null); setUrl(""); }}
+                      onClick={() => { setImportId(null); setImportStatus(null); setPickerOpened(false); }}
                       className="w-full py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted transition-colors"
                     >
                       Try again
