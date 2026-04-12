@@ -23,7 +23,10 @@ jobs:
       - name: Azure login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Login to ACR
         run: az acr login --name ${{ secrets.ACR_NAME }}
@@ -53,7 +56,10 @@ jobs:
       - name: Azure login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Deploy to Container Apps
         run: |
@@ -83,7 +89,9 @@ jobs:
       - name: Build frontend
         working-directory: artifacts/my-photos
         env:
-          VITE_API_URL: ${{ secrets.API_URL }}   # e.g. https://my-photos-api.azurecontainerapps.io
+          PORT: "5173"
+          BASE_PATH: "/"
+          VITE_API_URL: ${{ secrets.API_URL }}
         run: pnpm build
 
       - name: Deploy to Static Web Apps
