@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Search, X } from "lucide-react";
 import { useListPhotos, getListPhotosQueryKey } from "@workspace/api-client-react";
 import PhotoGrid from "@/components/PhotoGrid";
@@ -6,25 +6,52 @@ import { useQueryClient } from "@tanstack/react-query";
 import { getGetPhotoStatsQueryKey } from "@workspace/api-client-react";
 import { API_BASE } from "@/lib/api";
 
+const PAGE_SIZE = 50;
+
 export default function LibraryPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
   const [isDroppingFile, setIsDroppingFile] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [allPhotos, setAllPhotos] = useState<any[]>([]);
+  const [hasMore, setHasMore] = useState(true);
   const queryClient = useQueryClient();
 
   const handleSearchChange = (val: string) => {
     setSearch(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => setDebouncedSearch(val), 400);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(val);
+      setOffset(0);
+      setAllPhotos([]);
+      setHasMore(true);
+    }, 400);
   };
 
-  const params = { ...(debouncedSearch ? { search: debouncedSearch } : {}), trashed: false, hidden: false, limit: 50 };
-  const { data, isLoading } = useListPhotos(params as any, {
+  const params = { ...(debouncedSearch ? { search: debouncedSearch } : {}), trashed: false, hidden: false, limit: PAGE_SIZE, offset };
+  const { data, isLoading, isFetching } = useListPhotos(params as any, {
     query: { queryKey: getListPhotosQueryKey(params as any) },
   });
 
-  const photos = data?.photos ?? [];
+  useEffect(() => {
+    if (!data) return;
+    const incoming = (data as any).photos ?? [];
+    if (offset === 0) {
+      setAllPhotos(incoming);
+    } else {
+      setAllPhotos(prev => [...prev, ...incoming]);
+    }
+    setHasMore((data as any).hasMore ?? incoming.length === PAGE_SIZE);
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const resetList = () => {
+    setOffset(0);
+    setAllPhotos([]);
+    setHasMore(true);
+    queryClient.invalidateQueries({ queryKey: getListPhotosQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
+  };
 
   const handleHidePhoto = async (id: string) => {
     await fetch(`${API_BASE}/photos/${id}/hide`, {
@@ -33,8 +60,7 @@ export default function LibraryPage() {
       credentials: "include",
       body: JSON.stringify({ hidden: true }),
     });
-    queryClient.invalidateQueries({ queryKey: getListPhotosQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
+    resetList();
   };
 
   const handleGlobalDrop = useCallback(async (e: React.DragEvent) => {
@@ -46,9 +72,8 @@ export default function LibraryPage() {
       formData.append("file", file);
       await fetch(`${API_BASE}/photos`, { method: "POST", body: formData, credentials: "include" });
     }
-    queryClient.invalidateQueries({ queryKey: getListPhotosQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
-  }, [queryClient]);
+    resetList();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div
@@ -85,18 +110,31 @@ export default function LibraryPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-6 py-5">
-        {isLoading ? (
+        {isLoading && offset === 0 ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1">
             {Array.from({ length: 18 }).map((_, i) => (
               <div key={i} className="aspect-square bg-muted animate-pulse rounded-sm" />
             ))}
           </div>
         ) : (
-          <PhotoGrid
-            photos={photos}
-            onHide={handleHidePhoto}
-            emptyMessage={search ? "No photos match your search" : "Upload your first photo using the button in the sidebar or by dropping files here"}
-          />
+          <>
+            <PhotoGrid
+              photos={allPhotos}
+              onHide={handleHidePhoto}
+              emptyMessage={search ? "No photos match your search" : "Upload your first photo using the button in the sidebar or by dropping files here"}
+            />
+            {hasMore && (
+              <div className="flex justify-center mt-6">
+                <button
+                  onClick={() => setOffset(prev => prev + PAGE_SIZE)}
+                  disabled={isFetching}
+                  className="px-6 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors disabled:opacity-50"
+                >
+                  {isFetching ? "Loading..." : `Load more`}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -2,7 +2,7 @@ import { useListPhotos, getListPhotosQueryKey } from "@workspace/api-client-reac
 import PhotoGrid from "@/components/PhotoGrid";
 
 export default function FavoritesPage() {
-  const params = { favorite: true, trashed: false, limit: 50 };
+  const params = { favorite: true, trashed: false, limit: 500 };
   const { data, isLoading } = useListPhotos(params as any, {
     query: { queryKey: getListPhotosQueryKey(params as any) },
   });

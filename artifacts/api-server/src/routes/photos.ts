@@ -47,7 +47,7 @@ router.get("/photos/stats", async (req: any, res) => {
 
 router.get("/photos", async (req: any, res) => {
   const userId = req.currentUser.id;
-  const { search, album, favorite, trashed, hidden, limit = "100" } = req.query as Record<string, string>;
+  const { search, album, favorite, trashed, hidden, limit = "50", offset = "0" } = req.query as Record<string, string>;
 
   const conditions = [eq(photosTable.userId, userId)];
 
@@ -84,14 +84,15 @@ router.get("/photos", async (req: any, res) => {
       .where(eq(albumPhotosTable.albumId, album));
     const photoIds = albumPhotos.map((ap: { photoId: string }) => ap.photoId);
     if (photoIds.length === 0) {
-      return res.json({ photos: [], total: 0 });
+      return res.json({ photos: [], total: 0, hasMore: false });
     }
     photos = await db
       .select()
       .from(photosTable)
       .where(and(...conditions))
       .orderBy(desc(photosTable.uploadedAt))
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
+      .offset(parseInt(offset));
     photos = photos.filter((p: { id: string }) => photoIds.includes(p.id));
   } else {
     photos = await db
@@ -99,7 +100,8 @@ router.get("/photos", async (req: any, res) => {
       .from(photosTable)
       .where(and(...conditions))
       .orderBy(desc(photosTable.uploadedAt))
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
+      .offset(parseInt(offset));
   }
 
   const photosWithUrls = photos.map((photo: any) => {
@@ -123,7 +125,7 @@ router.get("/photos", async (req: any, res) => {
       };
     });
 
-  res.json({ photos: photosWithUrls, total: photosWithUrls.length });
+  res.json({ photos: photosWithUrls, total: photosWithUrls.length, hasMore: photosWithUrls.length === parseInt(limit) });
 });
 
 // Returns a write SAS URL so the browser can upload directly to Blob Storage.
