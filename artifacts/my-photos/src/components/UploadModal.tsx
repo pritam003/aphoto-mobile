@@ -45,11 +45,44 @@ export default function UploadModal({ onClose, albumId, albumName }: UploadModal
       if (files[i].status !== "pending") continue;
       setFiles(prev => prev.map((f, idx) => idx === i ? { ...f, status: "uploading" } : f));
       try {
-        const formData = new FormData();
-        formData.append("file", files[i].file);
-        if (albumId) formData.append("albumId", albumId);
-        const res = await fetch(`${API_BASE}/photos`, { method: "POST", body: formData, credentials: "include" });
-        if (!res.ok) throw new Error(await res.text());
+        const f = files[i].file;
+
+        // Step 1: get a presigned upload URL from the API
+        const presignRes = await fetch(`${API_BASE}/photos/presign`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ filename: f.name, contentType: f.type, albumId }),
+        });
+        if (!presignRes.ok) throw new Error(await presignRes.text());
+        const { uploadUrl, blobName } = await presignRes.json() as { uploadUrl: string | null; blobName: string };
+
+        if (uploadUrl) {
+          // Step 2a: upload directly from browser to Azure Blob Storage (no API proxy)
+          const putRes = await fetch(uploadUrl, {
+            method: "PUT",
+            headers: { "x-ms-blob-type": "BlockBlob", "Content-Type": f.type },
+            body: f,
+          });
+          if (!putRes.ok) throw new Error(`Blob upload failed: ${putRes.status}`);
+
+          // Step 2b: register metadata in the DB
+          const regRes = await fetch(`${API_BASE}/photos/register`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ blobName, filename: f.name, contentType: f.type, size: f.size, albumId }),
+          });
+          if (!regRes.ok) throw new Error(await regRes.text());
+        } else {
+          // Dev fallback: multipart POST through API
+          const formData = new FormData();
+          formData.append("file", f);
+          if (albumId) formData.append("albumId", albumId);
+          const res = await fetch(`${API_BASE}/photos`, { method: "POST", body: formData, credentials: "include" });
+          if (!res.ok) throw new Error(await res.text());
+        }
+
         setFiles(prev => prev.map((f, idx) => idx === i ? { ...f, status: "done" } : f));
       } catch (err) {
         setFiles(prev => prev.map((f, idx) => idx === i ? { ...f, status: "error", error: String(err) } : f));

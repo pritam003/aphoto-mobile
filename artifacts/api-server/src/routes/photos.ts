@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import path from "path";
 import { db, photosTable, albumPhotosTable, albumsTable, shareLinksTable } from "@workspace/db";
 import { eq, and, desc, ilike, or } from "drizzle-orm";
-import { uploadBlob, deleteBlob, generateSasUrl } from "../lib/azure-storage.js";
+import { uploadBlob, deleteBlob, generateSasUrl, generateUploadSasUrl } from "../lib/azure-storage.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
@@ -108,6 +108,55 @@ router.get("/photos", async (req: any, res) => {
   );
 
   res.json({ photos: photosWithUrls, total: photosWithUrls.length });
+});
+
+// Returns a write SAS URL so the browser can upload directly to Blob Storage.
+// In dev (no SAS), returns null and the client falls back to the multipart POST.
+router.post("/photos/presign", async (req: any, res) => {
+  const userId = req.currentUser.id;
+  const { filename, contentType, albumId } = req.body as {
+    filename: string;
+    contentType: string;
+    albumId?: string;
+  };
+  if (!filename || !contentType) return res.status(400).json({ error: "filename and contentType required" });
+
+  const ext = path.extname(filename);
+  const blobName = albumId
+    ? `${userId}/${albumId}/${randomUUID()}${ext}`
+    : `${userId}/${randomUUID()}${ext}`;
+
+  const uploadUrl = await generateUploadSasUrl(blobName, contentType);
+  res.json({ uploadUrl: uploadUrl || null, blobName });
+});
+
+// Saves photo metadata after a direct browser→blob upload.
+router.post("/photos/register", async (req: any, res) => {
+  const userId = req.currentUser.id;
+  const { blobName, filename, contentType, size, albumId } = req.body as {
+    blobName: string;
+    filename: string;
+    contentType: string;
+    size: number;
+    albumId?: string;
+  };
+  if (!blobName || !filename || !contentType) return res.status(400).json({ error: "blobName, filename and contentType required" });
+
+  const [photo] = await db
+    .insert(photosTable)
+    .values({ userId, filename, blobName, contentType, size: size || 0 })
+    .returning();
+
+  if (albumId) {
+    const [album] = await db.select().from(albumsTable)
+      .where(and(eq(albumsTable.id, albumId), eq(albumsTable.userId, userId)));
+    if (album) {
+      await db.insert(albumPhotosTable).values({ albumId, photoId: photo.id }).onConflictDoNothing();
+    }
+  }
+
+  const url = await generateSasUrl(blobName);
+  res.status(201).json({ ...photo, url, thumbnailUrl: url, albums: albumId ? [albumId] : [] });
 });
 
 router.post("/photos", upload.single("file"), async (req: any, res) => {
