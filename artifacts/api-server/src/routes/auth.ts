@@ -117,7 +117,11 @@ router.post("/auth/device-code-status", async (req, res) => {
 });
 
 router.post("/auth/logout", (req, res) => {
-  res.clearCookie("auth_token");
+  res.clearCookie("auth_token", {
+    httpOnly: true,
+    secure: true,
+    sameSite: isDev ? "lax" : "none",
+  });
   res.json({ ok: true });
 });
 
