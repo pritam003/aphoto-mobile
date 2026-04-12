@@ -38,7 +38,7 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark }: Sideb
 
   return (
     <div
-      className={`flex flex-col h-full bg-sidebar border-r border-sidebar-border shrink-0 transition-all duration-300 overflow-hidden ${
+      className={`flex flex-col h-full bg-sidebar border-r border-sidebar-border shrink-0 transition-[width] duration-200 overflow-hidden ${
         collapsed ? "w-[52px]" : "w-64"
       }`}
     >
