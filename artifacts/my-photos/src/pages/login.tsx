@@ -3,211 +3,199 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { API_BASE } from "@/lib/api";
 
+const VITE_API_URL = import.meta.env.VITE_API_URL || "";
+
 export default function LoginPage() {
   const { isAuthenticated, isLoading } = useAuth();
   const [, navigate] = useLocation();
-  const [isLoadingMs, setIsLoadingMs] = useState(false);
+
+  // Microsoft device-code state
+  const [msLoading, setMsLoading] = useState(false);
   const [deviceCode, setDeviceCode] = useState<string | null>(null);
   const [userCode, setUserCode] = useState<string | null>(null);
   const [verificationUri, setVerificationUri] = useState<string | null>(null);
-  const [pollError, setPollError] = useState<string | null>(null);
+  const [showMs, setShowMs] = useState(false);
+
+  const [error, setError] = useState<string | null>(() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.get("error");
+  });
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      navigate("/");
-    }
+    if (!isLoading && isAuthenticated) navigate("/");
   }, [isAuthenticated, isLoading, navigate]);
 
-  // Poll for device code status
+  // Poll Microsoft device code
   useEffect(() => {
     if (!deviceCode) return;
-
     const interval = setInterval(async () => {
       try {
-        const response = await fetch(`${API_BASE}/auth/device-code-status`, {
+        const res = await fetch(`${API_BASE}/auth/device-code-status`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ device_code: deviceCode }),
           credentials: "include",
         });
-
-        const data = await response.json() as { status?: string; error?: string };
-
-        if (response.ok && data.status === "success") {
-          // User authenticated successfully
+        const data = await res.json() as { status?: string };
+        if (res.ok && data.status === "success") {
           clearInterval(interval);
-          setDeviceCode(null);
           navigate("/");
-        } else if (response.status === 410) {
-          // Device code expired
+        } else if (res.status === 410) {
           clearInterval(interval);
-          setPollError("Device code expired. Please try again.");
-          setDeviceCode(null);
-          setUserCode(null);
-          setVerificationUri(null);
+          setDeviceCode(null); setUserCode(null); setVerificationUri(null);
+          setError("Device code expired. Please try again.");
         }
-      } catch (err) {
-        console.error("Poll error:", err);
-      }
+      } catch { /* keep polling */ }
     }, 2000);
-
     return () => clearInterval(interval);
   }, [deviceCode, navigate]);
 
+  const handleGoogleLogin = () => {
+    // Direct browser redirect to /api/auth/google — returns a redirect to Google
+    window.location.href = `${VITE_API_URL}/api/auth/google`;
+  };
+
   const handleMicrosoftLogin = async () => {
-    setIsLoadingMs(true);
-    setPollError(null);
+    setMsLoading(true); setError(null);
     try {
-      const response = await fetch(`${API_BASE}/auth/login`, {
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to start login");
-      }
-
-      const data = await response.json() as {
-        device_code: string;
-        user_code: string;
-        verification_uri: string;
-      };
-
+      const res = await fetch(`${API_BASE}/auth/login`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to start login");
+      const data = await res.json() as { device_code: string; user_code: string; verification_uri: string };
       setDeviceCode(data.device_code);
       setUserCode(data.user_code);
       setVerificationUri(data.verification_uri);
-    } catch (err) {
-      setPollError(`Login failed: ${String(err)}`);
-      console.error("Microsoft login error:", err);
+    } catch (e) {
+      setError(`Login failed: ${String(e)}`);
     } finally {
-      setIsLoadingMs(false);
+      setMsLoading(false);
     }
   };
 
-
-
-  // Show device code flow UI if waiting for authentication
+  // ── Microsoft device-code waiting screen ──────────────────────────────────
   if (deviceCode && userCode && verificationUri) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="w-full max-w-sm px-6">
-          <div className="text-center mb-10">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-6">
-              <svg
-                className="w-8 h-8 text-primary animate-spin"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  fill="#0078D4"
-                  d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"
-                  opacity=".3"
-                />
-                <path
-                  fill="#0078D4"
-                  d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"
-                />
-              </svg>
-            </div>
-            <h1 className="text-3xl font-semibold text-foreground tracking-tight">
-              Sign in with Microsoft
-            </h1>
-            <p className="mt-4 text-muted-foreground text-sm">
-              Follow these steps to sign in:
-            </p>
+        <div className="w-full max-w-sm px-6 space-y-5">
+          <div className="text-center">
+            <h1 className="text-2xl font-semibold text-foreground">Sign in with Microsoft</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Complete the login in your browser</p>
           </div>
-
-          <div className="space-y-6 mb-8">
-            <div className="bg-muted p-6 rounded-lg border border-border">
-              <div className="text-sm font-medium text-foreground mb-2">
-                Step 1: Copy your code
-              </div>
-              <div className="bg-background p-4 rounded text-center font-mono text-2xl font-bold text-primary tracking-widest border-2 border-primary/30">
+          <div className="bg-muted p-5 rounded-xl border border-border space-y-4">
+            <div>
+              <p className="text-xs font-medium text-foreground mb-1.5">1. Copy your code</p>
+              <div className="bg-background p-3 rounded-lg text-center font-mono text-2xl font-bold text-primary tracking-widest border border-primary/30">
                 {userCode}
               </div>
               <button
-                onClick={() => {
-                  navigator.clipboard.writeText(userCode || "");
-                }}
-                className="w-full mt-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
-              >
-                Copy code
-              </button>
+                onClick={() => navigator.clipboard.writeText(userCode)}
+                className="w-full mt-1.5 text-xs text-primary hover:underline"
+              >Copy code</button>
             </div>
-
-            <div className="bg-muted p-6 rounded-lg border border-border">
-              <div className="text-sm font-medium text-foreground mb-2">
-                Step 2: Go to this URL
-              </div>
+            <div>
+              <p className="text-xs font-medium text-foreground mb-1.5">2. Open the login page</p>
               <a
                 href={verificationUri}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block w-full px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 text-center font-medium transition-colors"
-              >
-                Open Microsoft Login →
-              </a>
-              <p className="text-xs text-muted-foreground mt-2">
-                Opens in a new window
-              </p>
-            </div>
-
-            <div className="text-center text-sm text-muted-foreground">
-              Waiting for your sign in...
+                className="block w-full px-4 py-2.5 bg-[#0078D4] hover:bg-[#106EBE] text-white text-sm font-medium text-center rounded-lg transition-colors"
+              >Open Microsoft Login →</a>
             </div>
           </div>
-
+          <p className="text-xs text-center text-muted-foreground animate-pulse">Waiting for sign in…</p>
           <button
-            onClick={() => {
-              setDeviceCode(null);
-              setUserCode(null);
-              setVerificationUri(null);
-              setPollError(null);
-            }}
-            className="w-full px-4 py-2 text-sm font-medium text-foreground hover:bg-muted rounded transition-colors"
-          >
-            Cancel
-          </button>
+            onClick={() => { setDeviceCode(null); setUserCode(null); setVerificationUri(null); }}
+            className="w-full text-sm text-muted-foreground hover:text-foreground py-2 rounded-lg hover:bg-muted transition-colors"
+          >Cancel</button>
         </div>
       </div>
     );
   }
 
+  // ── Main login screen ─────────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-sm px-6">
+        {/* Logo */}
         <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-6">
-            <svg viewBox="0 0 24 24" className="w-8 h-8 text-primary fill-current">
-              <path d="M4 4h7v7H4V4zm9 0h7v7h-7V4zm-9 9h7v7H4v-7zm9 0h7v7h-7v-7z" opacity=".3"/>
-              <path d="M4 2a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H4zm0 2h7v7H4V4zm9-2a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2h-7zm0 2h7v7h-7V4zM4 13a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-5a2 2 0 0 0-2-2H4zm0 2h7v5H4v-5zm9-2a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-5a2 2 0 0 0-2-2h-7zm0 2h7v5h-7v-5z"/>
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-5">
+            <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none">
+              <rect x="3" y="3" width="7" height="7" rx="1.5" fill="currentColor" className="text-primary" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" fill="currentColor" className="text-primary opacity-70" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" fill="currentColor" className="text-primary opacity-70" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" fill="currentColor" className="text-primary opacity-40" />
             </svg>
           </div>
           <h1 className="text-3xl font-semibold text-foreground tracking-tight">My Photos</h1>
-          <p className="mt-2 text-muted-foreground text-sm">Your personal photo library, backed by Azure</p>
+          <p className="mt-2 text-sm text-muted-foreground">Your personal photo library</p>
         </div>
 
-        {pollError && (
-          <div className="mb-4 p-3 bg-destructive/10 border border-destructive/30 rounded text-sm text-destructive">
-            {pollError}
+        {error && (
+          <div className="mb-5 px-4 py-3 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive">
+            {error === "cancelled" ? "Sign-in was cancelled." :
+             error === "expired" ? "Session expired. Please try again." :
+             error === "auth_failed" ? "Authentication failed. Please try again." :
+             `Sign-in error: ${error}`}
           </div>
         )}
 
-        <button
-          onClick={handleMicrosoftLogin}
-          disabled={isLoadingMs}
-          data-testid="button-microsoft-login"
-          className="w-full flex items-center justify-center gap-3 px-6 py-3.5 bg-[#0078D4] hover:bg-[#106EBE] active:bg-[#005A9E] disabled:opacity-50 text-white font-medium rounded-lg transition-colors duration-150 shadow-sm"
-        >
-          <svg viewBox="0 0 23 23" className="w-5 h-5" fill="none">
-            <path fill="#f35325" d="M1 1h10v10H1z"/>
-            <path fill="#81bc06" d="M12 1h10v10H12z"/>
-            <path fill="#05a6f0" d="M1 12h10v10H1z"/>
-            <path fill="#ffba08" d="M12 12h10v10H12z"/>
-          </svg>
-          {isLoadingMs ? "Starting sign in..." : "Sign in with Microsoft"}
-        </button>
+        <div className="space-y-3">
+          {/* Google — primary */}
+          <button
+            onClick={handleGoogleLogin}
+            data-testid="button-google-login"
+            className="w-full flex items-center justify-center gap-3 px-5 py-3 bg-white dark:bg-zinc-800 border border-border hover:bg-muted/60 text-foreground font-medium rounded-xl text-sm shadow-sm transition-colors"
+          >
+            {/* Official Google 'G' logo */}
+            <svg viewBox="0 0 24 24" className="w-5 h-5" xmlns="http://www.w3.org/2000/svg">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+            </svg>
+            Continue with Google
+          </button>
 
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          Sign in with your organization account to access your photos
+          {/* Divider */}
+          <div className="flex items-center gap-3 py-1">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-xs text-muted-foreground">or</span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+
+          {/* Microsoft — secondary */}
+          {!showMs ? (
+            <button
+              onClick={() => setShowMs(true)}
+              className="w-full flex items-center justify-center gap-3 px-5 py-2.5 border border-border hover:bg-muted/60 text-muted-foreground hover:text-foreground text-sm rounded-xl transition-colors"
+            >
+              <svg viewBox="0 0 23 23" className="w-4 h-4" fill="none">
+                <path fill="#f35325" d="M1 1h10v10H1z"/>
+                <path fill="#81bc06" d="M12 1h10v10H12z"/>
+                <path fill="#05a6f0" d="M1 12h10v10H1z"/>
+                <path fill="#ffba08" d="M12 12h10v10H12z"/>
+              </svg>
+              Sign in with Microsoft instead
+            </button>
+          ) : (
+            <button
+              onClick={handleMicrosoftLogin}
+              disabled={msLoading}
+              data-testid="button-microsoft-login"
+              className="w-full flex items-center justify-center gap-3 px-5 py-3 bg-[#0078D4] hover:bg-[#106EBE] disabled:opacity-60 text-white font-medium rounded-xl text-sm shadow-sm transition-colors"
+            >
+              <svg viewBox="0 0 23 23" className="w-4 h-4" fill="none">
+                <path fill="#f35325" d="M1 1h10v10H1z"/>
+                <path fill="#81bc06" d="M12 1h10v10H12z"/>
+                <path fill="#05a6f0" d="M1 12h10v10H1z"/>
+                <path fill="#ffba08" d="M12 12h10v10H12z"/>
+              </svg>
+              {msLoading ? "Starting…" : "Sign in with Microsoft"}
+            </button>
+          )}
+        </div>
+
+        <p className="mt-8 text-center text-xs text-muted-foreground">
+          Sign in to access your personal photo library
         </p>
       </div>
     </div>
