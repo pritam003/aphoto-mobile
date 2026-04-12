@@ -38,7 +38,7 @@ export default function AlbumsPage() {
         <h1 className="text-lg font-semibold text-foreground">Albums</h1>
         <div className="flex-1" />
         <button
-          onClick={() => { setActiveImportId(null); setShowImport(true); }}
+          onClick={() => setShowImport(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
         >
           {/* Google 'G' icon small */}
