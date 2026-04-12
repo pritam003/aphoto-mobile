@@ -228,8 +228,7 @@ function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
       videoRef.current.currentTime = 0;
       setPlaying(false);
     } else {
-      videoRef.current.play().catch(() => {});
-      setPlaying(true);
+      videoRef.current.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
     }
   };
 
@@ -253,6 +252,7 @@ function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
         playsInline
         preload="none"
         onEnded={() => setPlaying(false)}
+        onError={() => setPlaying(false)}
       />
       {/* Play badge — hidden while playing */}
       <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-150 ${playing ? "opacity-0" : "opacity-100"}`}>

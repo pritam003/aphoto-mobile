@@ -1,5 +1,5 @@
 import { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions, UserDelegationKey } from "@azure/storage-blob";
-import { DefaultAzureCredential } from "@azure/identity";
+import { DefaultAzureCredential, ManagedIdentityCredential } from "@azure/identity";
 
 const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME!;
 const containerName = process.env.AZURE_STORAGE_CONTAINER_NAME!;
@@ -9,7 +9,13 @@ let blobServiceClient: BlobServiceClient;
 function getBlobServiceClient(): BlobServiceClient {
   if (blobServiceClient) return blobServiceClient;
 
-  const credential = new DefaultAzureCredential();
+  // In production, use ManagedIdentityCredential directly (system-assigned) to avoid
+  // the 30-second DefaultAzureCredential chain timeout when other credential types fail.
+  const credential =
+    process.env.NODE_ENV === "production"
+      ? new ManagedIdentityCredential()
+      : new DefaultAzureCredential();
+
   blobServiceClient = new BlobServiceClient(
     `https://${accountName}.blob.core.windows.net`,
     credential,
@@ -81,30 +87,36 @@ export function generateSasUrl(blobName: string): string {
 
 // Generate a write-only SAS URL so the browser can upload directly to Blob Storage
 // without routing the file bytes through the API.
+// Returns "" if the delegation key cannot be obtained — the client falls back to multipart POST.
 export async function generateUploadSasUrl(blobName: string, contentType: string): Promise<string> {
   if (process.env.NODE_ENV !== "production") {
     // In dev the browser upload goes through the API proxy (handled in photos route)
     return "";
   }
 
-  const startsOn = new Date();
-  const expiresOn = new Date(startsOn.getTime() + 30 * 60 * 1000); // 30 min to complete upload
-  const userDelegationKey = await getUserDelegationKey();
+  try {
+    const startsOn = new Date();
+    const expiresOn = new Date(startsOn.getTime() + 30 * 60 * 1000); // 30 min to complete upload
+    const userDelegationKey = await getUserDelegationKey();
 
-  const sasParams = generateBlobSASQueryParameters(
-    {
-      containerName,
-      blobName,
-      permissions: BlobSASPermissions.parse("cw"), // create + write
-      startsOn,
-      expiresOn,
-      contentType,
-    },
-    userDelegationKey,
-    accountName,
-  );
+    const sasParams = generateBlobSASQueryParameters(
+      {
+        containerName,
+        blobName,
+        permissions: BlobSASPermissions.parse("cw"), // create + write
+        startsOn,
+        expiresOn,
+        contentType,
+      },
+      userDelegationKey,
+      accountName,
+    );
 
-  return `https://${accountName}.blob.core.windows.net/${containerName}/${blobName}?${sasParams.toString()}`;
+    return `https://${accountName}.blob.core.windows.net/${containerName}/${blobName}?${sasParams.toString()}`;
+  } catch {
+    // Delegation key unavailable — caller will use multipart fallback
+    return "";
+  }
 }
 
 export async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
