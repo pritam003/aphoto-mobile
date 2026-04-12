@@ -44,12 +44,6 @@ router.get("/auth/login", async (req, res) => {
       "Device code flow initiated",
     );
 
-    // Store device code with timestamp for cleanup
-    deviceCodeMap.set(
-      deviceFlow.device_code,
-      Date.now() + deviceFlow.expires_in * 1000,
-    );
-
     return res.json({
       device_code: deviceFlow.device_code,
       user_code: deviceFlow.user_code,
