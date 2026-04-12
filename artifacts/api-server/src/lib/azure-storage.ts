@@ -72,6 +72,32 @@ export function generateSasUrl(blobName: string): string {
   return `https://${accountName}.blob.core.windows.net/${containerName}/${blobName}`;
 }
 
+// Returns a short-lived read SAS URL (2 h). Works even when the container is not public.
+// Uses the cached user delegation key — fast (crypto-only) after first call.
+export async function generateReadSasUrl(blobName: string): Promise<string> {
+  if (process.env.NODE_ENV !== "production") {
+    return `/api/blobs/${blobName}`;
+  }
+
+  const startsOn = new Date();
+  const expiresOn = new Date(startsOn.getTime() + 2 * 60 * 60 * 1000); // 2 hours
+  const userDelegationKey = await getUserDelegationKey();
+
+  const sasParams = generateBlobSASQueryParameters(
+    {
+      containerName,
+      blobName,
+      permissions: BlobSASPermissions.parse("r"),
+      startsOn,
+      expiresOn,
+    },
+    userDelegationKey,
+    accountName,
+  );
+
+  return `https://${accountName}.blob.core.windows.net/${containerName}/${blobName}?${sasParams.toString()}`;
+}
+
 // Generate a write-only SAS URL so the browser can upload directly to Blob Storage
 // without routing the file bytes through the API.
 export async function generateUploadSasUrl(blobName: string, contentType: string): Promise<string> {
