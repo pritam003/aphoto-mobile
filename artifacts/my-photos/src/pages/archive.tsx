@@ -2,6 +2,7 @@ import { useListPhotos, getListPhotosQueryKey, getGetPhotoStatsQueryKey } from "
 import { useQueryClient } from "@tanstack/react-query";
 import PhotoGrid from "@/components/PhotoGrid";
 import { API_BASE } from "@/lib/api";
+import ArchiveLockGate from "@/components/ArchiveLockGate";
 
 export default function ArchivePage() {
   const queryClient = useQueryClient();
@@ -28,7 +29,8 @@ export default function ArchivePage() {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full">
+    <ArchiveLockGate>
+      <div className="flex-1 flex flex-col h-full">
       <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-background/80 backdrop-blur sticky top-0 z-10">
         <h1 className="text-lg font-semibold text-foreground">Archive</h1>
         <span className="text-sm text-muted-foreground">{photos.length} item{photos.length !== 1 ? "s" : ""}</span>
@@ -59,5 +61,6 @@ export default function ArchivePage() {
         )}
       </div>
     </div>
+    </ArchiveLockGate>
   );
 }

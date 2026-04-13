@@ -46,6 +46,11 @@ export const shareLinksTable = pgTable("share_links", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const userSettingsTable = pgTable("user_settings", {
+  userId: text("user_id").primaryKey(),
+  archiveTotpSecret: text("archive_totp_secret"),
+});
+
 export const insertPhotoSchema = createInsertSchema(photosTable).omit({ id: true, uploadedAt: true });
 export const insertAlbumSchema = createInsertSchema(albumsTable).omit({ id: true, createdAt: true });
 
