@@ -245,7 +245,9 @@ router.get("/google/callback", async (req, res) => {
 
   runImport(importId, session.id, pending.userId, access_token).catch(console.error);
 
-  return res.redirect(`${frontendUrl}/albums?import_id=${importId}`);
+  // Redirect this tab (the OAuth tab) straight to the picker so the user
+  // only ever sees 2 tabs: APhoto + picker.
+  return res.redirect(session.pickerUri);
 });
 
 // GET /api/google/import-by-state/:state — called by originating tab to get importId after new-tab OAuth

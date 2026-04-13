@@ -26,11 +26,9 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
   const [importId, setImportId] = useState<string | null>(activeImportId ?? null);
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
   const [starting, setStarting] = useState(false);
-  const [pickerOpened, setPickerOpened] = useState(false);
   // state token for polling import-by-state while the OAuth tab is open
   const [pendingState, setPendingState] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const prevPickerUri = useRef<string | null>(null);
 
   // Phase A: poll for importId by state (after OAuth new-tab opens, before we have an importId)
   useEffect(() => {
@@ -63,12 +61,8 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
         if (!res.ok) return;
         const data = await res.json() as ImportStatus;
         setImportStatus(data);
-        // Auto-open picker in new tab when pickerUri first becomes available
-        if (data.pickerUri && data.pickerUri !== prevPickerUri.current) {
-          prevPickerUri.current = data.pickerUri;
-          window.open(data.pickerUri, "_blank", "noopener,noreferrer");
-          setPickerOpened(true);
-        }
+        // Picker opens in the OAuth tab (redirected there by the server callback);
+        // no additional tab needed here.
         if (data.status === "done" || data.status === "error") {
           clearInterval(pollRef.current!);
           pollRef.current = null;
@@ -193,16 +187,14 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
                     <div>
                       <p className="text-sm font-medium text-foreground">Waiting for photo selection</p>
                       <p className="text-xs text-muted-foreground">
-                        {pickerOpened
-                          ? "Select photos in the Google Photos tab, then click Done"
-                          : "Opening Google Photos picker…"}
+                        Select your photos in the Google Photos tab, then click Done — the import will start automatically.
                       </p>
                     </div>
                   </div>
-                  {pickerOpened && (
+                  {importStatus.pickerUri && (
                     <button
                       onClick={() => window.open(importStatus.pickerUri!, "_blank", "noopener,noreferrer")}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-border text-sm font-medium hover:bg-muted transition-colors"
                     >
                       <ExternalLink className="w-4 h-4" />
                       Reopen Google Photos Picker
