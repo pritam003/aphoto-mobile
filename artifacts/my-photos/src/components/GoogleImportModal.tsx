@@ -3,7 +3,16 @@ import { X, CheckCircle, AlertCircle, Loader2, FolderDown, ExternalLink, FolderI
 import { useLocation } from "wouter";
 import { API_BASE } from "@/lib/api";
 
-interface GoogleImportModalProps { onClose: () => void; activeImportId?: string | null; }
+interface GoogleImportModalProps {
+  onClose: () => void;
+  activeImportId?: string | null;
+  /** Album-detail: auto-import into this album ID (no folder creation shown) */
+  targetAlbumId?: string;
+  /** Album-detail: album name shown in the progress panel */
+  albumDisplayName?: string;
+  /** Albums list page: show folder name input so user can create a new album */
+  allowCreateAlbum?: boolean;
+}
 
 interface ImportStatus {
   status: "picking" | "importing" | "done" | "error";
@@ -14,7 +23,7 @@ interface ImportStatus {
 
 interface ThumbPhoto { id: string; thumbnailUrl: string; }
 
-export default function GoogleImportModal({ onClose, activeImportId }: GoogleImportModalProps) {
+export default function GoogleImportModal({ onClose, activeImportId, targetAlbumId, albumDisplayName, allowCreateAlbum }: GoogleImportModalProps) {
   const [, navigate] = useLocation();
   const [albumName, setAlbumName] = useState("");
   const [connectError, setConnectError] = useState("");
@@ -84,7 +93,13 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
     try {
       const res = await fetch(`${API_BASE}/google/auth-url`, {
         method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-        body: JSON.stringify({ albumName: albumName.trim() || "Google Photos Import" }),
+        body: JSON.stringify({
+          albumName: targetAlbumId
+            ? (albumDisplayName || "Google Photos Import")
+            : (albumName.trim() || "Google Photos Import"),
+          targetAlbumId,
+          noAlbum: !allowCreateAlbum && !targetAlbumId,
+        }),
       });
       const data = await res.json() as { authUrl?: string; state?: string; error?: string };
       if (!res.ok || !data.authUrl) { setConnectError(data.error ?? "Failed to connect. Please try again."); return; }
@@ -118,19 +133,25 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
 
           <div className="p-6 space-y-5">
             <p className="text-sm text-muted-foreground">
-              Give the album a name, then sign in with Google to select which photos to import.
+              {targetAlbumId
+                ? "Select photos from Google to add to this album."
+                : allowCreateAlbum
+                ? "Give the album a name, then sign in with Google to select which photos to import."
+                : "Select photos from Google Photos to import to your library."}
             </p>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
-                <FolderInput className="w-3.5 h-3.5" /> Folder name
-              </label>
-              <input
-                type="text" value={albumName} onChange={e => setAlbumName(e.target.value)}
-                placeholder="e.g. Summer 2021"
-                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                onKeyDown={e => { if (e.key === "Enter" && !starting) handleConnect(); }}
-              />
-            </div>
+            {allowCreateAlbum && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                  <FolderInput className="w-3.5 h-3.5" /> Folder name
+                </label>
+                <input
+                  type="text" value={albumName} onChange={e => setAlbumName(e.target.value)}
+                  placeholder="e.g. Summer 2021"
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  onKeyDown={e => { if (e.key === "Enter" && !starting) handleConnect(); }}
+                />
+              </div>
+            )}
             {connectError && <p className="text-xs text-destructive">{connectError}</p>}
             <button
               onClick={handleConnect} disabled={starting}

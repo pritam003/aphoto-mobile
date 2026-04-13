@@ -18,8 +18,8 @@ function apiOrigin(req: any): string {
   return `${proto}://${host}`;
 }
 
-// In-memory state store: stateKey -> { userId, redirectUri, albumName }
-const pendingStates = new Map<string, { userId: string; redirectUri: string; albumName: string }>();
+// In-memory state store: stateKey -> { userId, redirectUri, albumName, targetAlbumId?, noAlbum? }
+const pendingStates = new Map<string, { userId: string; redirectUri: string; albumName: string; targetAlbumId?: string; noAlbum?: boolean }>();
 
 // Map state -> importId, written after OAuth callback so the originating tab can resolve it
 const stateToImportId = new Map<string, string>();
@@ -44,7 +44,7 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-async function runImport(importId: string, sessionId: string, userId: string, accessToken: string) {
+async function runImport(importId: string, sessionId: string, userId: string, accessToken: string, targetAlbumId?: string, noAlbum?: boolean) {
   const status = importStatuses.get(importId)!;
 
   try {
@@ -92,11 +92,19 @@ async function runImport(importId: string, sessionId: string, userId: string, ac
       return;
     }
 
-    const [newAlbum] = await db
-      .insert(albumsTable)
-      .values({ userId, name: status.albumName || "Google Photos Import" })
-      .returning();
-    status.albumId = newAlbum.id;
+    // Resolve album: use existing, create new, or import to library only
+    let albumId: string | undefined;
+    if (targetAlbumId) {
+      albumId = targetAlbumId;
+      status.albumId = targetAlbumId;
+    } else if (!noAlbum) {
+      const [newAlbum] = await db
+        .insert(albumsTable)
+        .values({ userId, name: status.albumName || "Google Photos Import" })
+        .returning();
+      albumId = newAlbum.id;
+      status.albumId = albumId;
+    }
 
     for (const item of items) {
       try {
@@ -112,7 +120,7 @@ async function runImport(importId: string, sessionId: string, userId: string, ac
         if (!photoRes.ok) throw new Error(`Download failed: ${photoRes.status} ${await photoRes.text()}`);
 
         const buffer = Buffer.from(await photoRes.arrayBuffer());
-        const blobName = `${userId}/${newAlbum.id}/${randomUUID()}${ext}`;
+        const blobName = `${userId}/${albumId ?? "library"}/${randomUUID()}${ext}`;
         await uploadBlob(blobName, buffer, mimeType);
 
         const meta = item.mediaFile?.mediaFileMetadata;
@@ -130,10 +138,12 @@ async function runImport(importId: string, sessionId: string, userId: string, ac
           })
           .returning();
 
-        await db
-          .insert(albumPhotosTable)
-          .values({ albumId: newAlbum.id, photoId: photo.id })
-          .onConflictDoNothing();
+        if (albumId) {
+          await db
+            .insert(albumPhotosTable)
+            .values({ albumId, photoId: photo.id })
+            .onConflictDoNothing();
+        }
 
         status.imported++;
       } catch (err: any) {
@@ -164,9 +174,11 @@ router.post("/google/auth-url", requireAuth, async (req: any, res) => {
   }
 
   const albumName: string = (req.body as any)?.albumName?.trim() || "Google Photos Import";
+  const targetAlbumId: string | undefined = (req.body as any)?.targetAlbumId || undefined;
+  const noAlbum: boolean = !!(req.body as any)?.noAlbum;
   const redirectUri = `${apiOrigin(req)}/api/google/callback`;
   const state = randomUUID();
-  pendingStates.set(state, { userId: req.currentUser.id, redirectUri, albumName });
+  pendingStates.set(state, { userId: req.currentUser.id, redirectUri, albumName, targetAlbumId, noAlbum });
   setTimeout(() => { pendingStates.delete(state); stateToImportId.delete(state); }, 10 * 60 * 1000);
 
   const params = new URLSearchParams({
@@ -243,7 +255,7 @@ router.get("/google/callback", async (req, res) => {
   // Allow originating tab to resolve importId by state
   stateToImportId.set(state, importId);
 
-  runImport(importId, session.id, pending.userId, access_token).catch(console.error);
+  runImport(importId, session.id, pending.userId, access_token, pending.targetAlbumId, pending.noAlbum).catch(console.error);
 
   // Redirect this tab (the OAuth tab) straight to the picker so the user
   // only ever sees 2 tabs: APhoto + picker.

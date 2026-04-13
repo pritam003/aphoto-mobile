@@ -185,7 +185,11 @@ export default function AlbumDetailPage() {
       )}
 
       {showGoogleImport && (
-        <GoogleImportModal onClose={() => setShowGoogleImport(false)} />
+        <GoogleImportModal
+          onClose={() => setShowGoogleImport(false)}
+          targetAlbumId={id}
+          albumDisplayName={album?.name ?? ""}
+        />
       )}
 
       {showPicker && (

@@ -148,6 +148,7 @@ export default function AlbumsPage() {
       {showImport && (
         <GoogleImportModal
           activeImportId={activeImportId}
+          allowCreateAlbum
           onClose={() => {
             setShowImport(false);
             setActiveImportId(null);

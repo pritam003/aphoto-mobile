@@ -43,7 +43,10 @@ router.get("/albums", async (req: any, res) => {
 
         photoCount = activePhotos.length;
         if (activePhotos.length > 0) {
-          coverUrl = generateSasUrl(activePhotos[0].blobName, 3600);
+          const coverPhoto =
+            activePhotos.find((p: any) => !p.contentType?.startsWith("video/")) ??
+            activePhotos[0];
+          coverUrl = generateSasUrl(coverPhoto.blobName, 3600);
         }
       }
 
