@@ -107,18 +107,24 @@ router.post("/archive-lock/verify", async (req: any, res) => {
   const [settings] = await db.select().from(userSettingsTable).where(eq(userSettingsTable.userId, userId));
   if (!settings?.archiveTotpSecret) return res.status(404).json({ error: "Archive lock not set up" });
   if (!totpVerify(settings.archiveTotpSecret, token)) return res.status(401).json({ error: "Invalid code. Please try again." });
+  // Unlocked via TOTP — clear any recovery flag so manage-lock uses normal TOTP verify
   (req.session as any).archiveUnlocked = true;
+  (req.session as any).archiveRecoveredViaEmail = undefined;
   res.json({ success: true });
 });
 
 router.get("/archive-lock/session", (req: any, res) => {
-  res.json({ unlocked: !!(req.session as any)?.archiveUnlocked });
+  res.json({
+    unlocked: !!(req.session as any)?.archiveUnlocked,
+    recoveredViaEmail: !!(req.session as any)?.archiveRecoveredViaEmail,
+  });
 });
 
 router.delete("/archive-lock/setup", async (req: any, res) => {
   const userId = req.currentUser.id;
   await db.update(userSettingsTable).set({ archiveTotpSecret: null }).where(eq(userSettingsTable.userId, userId));
   (req.session as any).archiveUnlocked = undefined;
+  (req.session as any).archiveRecoveredViaEmail = undefined;
   res.json({ success: true });
 });
 
@@ -192,6 +198,7 @@ router.post("/archive-lock/verify-recovery", async (req: any, res) => {
 
   recoveryOtps.delete(userId);
   (req.session as any).archiveUnlocked = true;
+  (req.session as any).archiveRecoveredViaEmail = true;
   res.json({ success: true });
 });
 
