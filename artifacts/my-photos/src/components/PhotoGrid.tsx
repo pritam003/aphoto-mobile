@@ -272,11 +272,12 @@ function MonthGroup({ month, monthPhotos, allPhotos, onOpenLightbox, onRemoveFro
   );
 }
 
-function VideoThumbnailCell({ src }: { src: string; alt: string }) {
+function VideoThumbnailCell({ src, isHovered }: { src: string; alt: string; isHovered: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(false);
   const [frameReady, setFrameReady] = useState(false);
+  const firstFrameTime = useRef(0);
 
   // Lazy-mount: only render the <video> element when near the viewport
   useEffect(() => {
@@ -289,9 +290,7 @@ function VideoThumbnailCell({ src }: { src: string; alt: string }) {
     return () => obs.disconnect();
   }, []);
 
-  // Attach native DOM listeners after the video element mounts.
-  // React synthetic onCanPlay/onSeeked miss events that fire before React
-  // attaches handlers (common with fast networks or cached blobs).
+  // Native DOM listeners — avoid React synthetic event race condition
   useEffect(() => {
     if (!inView) return;
     const v = videoRef.current;
@@ -299,16 +298,17 @@ function VideoThumbnailCell({ src }: { src: string; alt: string }) {
 
     const markReady = () => setFrameReady(true);
     const seekToFrame = () => {
-      if (v.duration > 0) v.currentTime = Math.min(1, v.duration * 0.1);
+      const t = v.duration > 0 ? Math.min(1, v.duration * 0.05) : 0;
+      firstFrameTime.current = t;
+      v.currentTime = t;
     };
 
     v.addEventListener("canplay", markReady);
     v.addEventListener("seeked", markReady);
     v.addEventListener("loadedmetadata", seekToFrame);
 
-    // If events already fired before we attached (race condition), handle immediately
-    if (v.readyState >= 3) markReady();
-    else if (v.readyState >= 1) seekToFrame();
+    if (v.readyState >= 3) { markReady(); }
+    else if (v.readyState >= 1) { seekToFrame(); }
 
     return () => {
       v.removeEventListener("canplay", markReady);
@@ -316,6 +316,18 @@ function VideoThumbnailCell({ src }: { src: string; alt: string }) {
       v.removeEventListener("loadedmetadata", seekToFrame);
     };
   }, [inView]);
+
+  // Play on hover, reset to first frame on leave
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !frameReady) return;
+    if (isHovered) {
+      v.play().catch(() => {});
+    } else {
+      v.pause();
+      v.currentTime = firstFrameTime.current;
+    }
+  }, [isHovered, frameReady]);
 
   return (
     <div ref={containerRef} className="w-full h-full relative pointer-events-none">
@@ -325,16 +337,17 @@ function VideoThumbnailCell({ src }: { src: string; alt: string }) {
           src={src}
           className="w-full h-full object-cover"
           muted
+          loop
           playsInline
           preload="metadata"
         />
       )}
-      {/* Pulse placeholder until the first frame is decoded */}
+      {/* Pulse placeholder until first frame is ready */}
       {(!frameReady || !inView) && (
         <div className="absolute inset-0 bg-muted animate-pulse" />
       )}
-      {/* Play badge — always visible so user knows it's a video */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      {/* Play badge — fades out while hovering */}
+      <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-200 ${isHovered ? "opacity-0" : "opacity-100"}`}>
         <div className="w-9 h-9 rounded-full bg-black/55 shadow-md flex items-center justify-center">
           <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
         </div>
@@ -355,6 +368,7 @@ function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, se
 }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
+  const [videoHovered, setVideoHovered] = useState(false);
   const isVideo = photo.contentType?.startsWith("video/") || /\.(mp4|mov|webm|avi|mkv)$/i.test(photo.filename || "");
   const thumbUrl = photo.thumbnailUrl || photo.url;
   const [showAlbumPicker, setShowAlbumPicker] = useState(false);
@@ -378,10 +392,16 @@ function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, se
       data-testid={`photo-${photo.id}`}
       className="relative aspect-square bg-muted overflow-hidden rounded-lg group focus:outline-none focus:ring-2 focus:ring-primary transition-all duration-200 hover:scale-[1.03] hover:shadow-lg hover:z-10"
       style={{ contain: "layout style paint" }}
+      onMouseEnter={() => isVideo && setVideoHovered(true)}
+      onMouseLeave={() => isVideo && setVideoHovered(false)}
     >
       {!error ? (
         isVideo ? (
-          <VideoThumbnailCell src={thumbUrl} alt={photo.filename} />
+          <VideoThumbnailCell
+            src={thumbUrl}
+            alt={photo.filename}
+            isHovered={videoHovered}
+          />
         ) : (
         <img
           src={photo.thumbnailUrl || photo.url}
