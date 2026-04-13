@@ -76,7 +76,7 @@ router.get("/photos/stats", async (req: any, res) => {
 
 router.get("/photos", async (req: any, res) => {
   const userId = req.currentUser.id;
-  const { search, album, favorite, trashed, hidden, limit = "50", offset = "0" } = req.query as Record<string, string>;
+  const { search, album, favorite, trashed, hidden, limit = "50", offset = "0", orderBy = "taken" } = req.query as Record<string, string>;
 
   const conditions = [eq(photosTable.userId, userId)];
 
@@ -115,20 +115,26 @@ router.get("/photos", async (req: any, res) => {
     if (photoIds.length === 0) {
       return res.json({ photos: [], total: 0, hasMore: false });
     }
+    const orderExpr = orderBy === "uploaded"
+      ? desc(photosTable.uploadedAt)
+      : desc(sql`COALESCE(${photosTable.takenAt}, ${photosTable.uploadedAt})`);
     photos = await db
       .select()
       .from(photosTable)
       .where(and(...conditions))
-      .orderBy(desc(sql`COALESCE(${photosTable.takenAt}, ${photosTable.uploadedAt})`))
+      .orderBy(orderExpr)
       .limit(parseInt(limit))
       .offset(parseInt(offset));
     photos = photos.filter((p: { id: string }) => photoIds.includes(p.id));
   } else {
+    const orderExpr = orderBy === "uploaded"
+      ? desc(photosTable.uploadedAt)
+      : desc(sql`COALESCE(${photosTable.takenAt}, ${photosTable.uploadedAt})`);
     photos = await db
       .select()
       .from(photosTable)
       .where(and(...conditions))
-      .orderBy(desc(sql`COALESCE(${photosTable.takenAt}, ${photosTable.uploadedAt})`))
+      .orderBy(orderExpr)
       .limit(parseInt(limit))
       .offset(parseInt(offset));
   }

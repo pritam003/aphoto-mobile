@@ -80,6 +80,8 @@ export type ListPhotosParams = {
   album?: string;
   favorite?: boolean;
   trashed?: boolean;
+  hidden?: boolean;
+  orderBy?: "taken" | "uploaded";
   limit?: number;
   cursor?: string;
 };

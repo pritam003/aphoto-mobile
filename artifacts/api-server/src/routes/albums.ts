@@ -120,6 +120,7 @@ router.delete("/albums/:id", async (req: any, res) => {
 
 router.get("/albums/:id/photos", async (req: any, res) => {
   const userId = req.currentUser.id;
+  const { orderBy = "taken" } = req.query as Record<string, string>;
   const [album] = await db
     .select()
     .from(albumsTable)
@@ -144,7 +145,15 @@ router.get("/albums/:id/photos", async (req: any, res) => {
     }),
   );
 
-  const validPhotos = photos.filter(Boolean);
+  const validPhotos = photos.filter(Boolean) as any[];
+  validPhotos.sort((a, b) => {
+    if (orderBy === "uploaded") {
+      return new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime();
+    }
+    const da = new Date(a.takenAt ?? a.uploadedAt).getTime();
+    const db2 = new Date(b.takenAt ?? b.uploadedAt).getTime();
+    return db2 - da;
+  });
   res.json({ photos: validPhotos, total: validPhotos.length });
 });
 

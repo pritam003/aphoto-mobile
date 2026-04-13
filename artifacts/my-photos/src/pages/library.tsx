@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Search, X } from "lucide-react";
+import { Search, X, CalendarDays, Upload } from "lucide-react";
 import { useListPhotos, getListPhotosQueryKey } from "@workspace/api-client-react";
 import PhotoGrid from "@/components/PhotoGrid";
 import { useQueryClient } from "@tanstack/react-query";
@@ -16,6 +16,7 @@ export default function LibraryPage() {
   const [offset, setOffset] = useState(0);
   const [allPhotos, setAllPhotos] = useState<any[]>([]);
   const [hasMore, setHasMore] = useState(true);
+  const [sortOrder, setSortOrder] = useState<"taken" | "uploaded">("taken");
   const queryClient = useQueryClient();
 
   const handleSearchChange = (val: string) => {
@@ -29,7 +30,16 @@ export default function LibraryPage() {
     }, 400);
   };
 
-  const params = { ...(debouncedSearch ? { search: debouncedSearch } : {}), trashed: false, hidden: false, limit: PAGE_SIZE, offset };
+  const handleSortChange = (order: "taken" | "uploaded") => {
+    if (order === sortOrder) return;
+    setSortOrder(order);
+    setOffset(0);
+    setAllPhotos([]);
+    setHasMore(true);
+    queryClient.removeQueries({ queryKey: getListPhotosQueryKey() });
+  };
+
+  const params = { ...(debouncedSearch ? { search: debouncedSearch } : {}), trashed: false, hidden: false, orderBy: sortOrder, limit: PAGE_SIZE, offset };
   const { data, isLoading, isFetching } = useListPhotos(params as any, {
     query: { queryKey: getListPhotosQueryKey(params as any) },
   });
@@ -91,6 +101,32 @@ export default function LibraryPage() {
       <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-background/80 backdrop-blur sticky top-0 z-10">
         <h1 className="text-lg font-semibold text-foreground">Photos</h1>
         <div className="flex-1" />
+        <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
+          <button
+            onClick={() => handleSortChange("taken")}
+            title="Sort by photo date"
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md transition-colors ${
+              sortOrder === "taken"
+                ? "bg-background text-foreground shadow-sm font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <CalendarDays className="w-3.5 h-3.5" />
+            Photo date
+          </button>
+          <button
+            onClick={() => handleSortChange("uploaded")}
+            title="Sort by upload date"
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md transition-colors ${
+              sortOrder === "uploaded"
+                ? "bg-background text-foreground shadow-sm font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Upload className="w-3.5 h-3.5" />
+            Upload date
+          </button>
+        </div>
         <div className="relative w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input

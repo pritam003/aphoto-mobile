@@ -1,5 +1,5 @@
 import { useRoute, useLocation } from "wouter";
-import { ArrowLeft, Pencil, Check, Upload, Plus, X } from "lucide-react";
+import { ArrowLeft, Pencil, Check, Upload, Plus, X, CalendarDays } from "lucide-react";
 import { useState } from "react";
 import { useGetAlbum, useListAlbumPhotos, useUpdateAlbum, useListPhotos, useAddPhotoToAlbum, useRemovePhotoFromAlbum, useTrashPhoto, getListAlbumsQueryKey, getListAlbumPhotosQueryKey, getListPhotosQueryKey, getGetPhotoStatsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ export default function AlbumDetailPage() {
   const [editName, setEditName] = useState("");
   const [showUpload, setShowUpload] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [sortOrder, setSortOrder] = useState<"taken" | "uploaded">("taken");
   const queryClient = useQueryClient();
 
   const { data: album } = useGetAlbum(id, {
@@ -30,7 +31,14 @@ export default function AlbumDetailPage() {
   const removePhoto = useRemovePhotoFromAlbum();
   const trashPhoto = useTrashPhoto();
 
-  const photos = data?.photos ?? [];
+  const photos = (data?.photos ?? []).slice().sort((a: any, b: any) => {
+    if (sortOrder === "uploaded") {
+      return new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime();
+    }
+    const da = new Date(a.takenAt ?? a.uploadedAt).getTime();
+    const db2 = new Date(b.takenAt ?? b.uploadedAt).getTime();
+    return db2 - da;
+  });
   const albumPhotoIds = new Set(photos.map((p: any) => p.id));
   const libraryPhotos = (allPhotosData?.photos ?? []).filter((p: any) => !albumPhotoIds.has(p.id));
 
@@ -114,6 +122,32 @@ export default function AlbumDetailPage() {
           </div>
         )}
         <span className="text-sm text-muted-foreground">{photos.length} photo{photos.length !== 1 ? "s" : ""}</span>
+        <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
+          <button
+            onClick={() => setSortOrder("taken")}
+            title="Sort by photo date"
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md transition-colors ${
+              sortOrder === "taken"
+                ? "bg-background text-foreground shadow-sm font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <CalendarDays className="w-3.5 h-3.5" />
+            Photo date
+          </button>
+          <button
+            onClick={() => setSortOrder("uploaded")}
+            title="Sort by upload date"
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md transition-colors ${
+              sortOrder === "uploaded"
+                ? "bg-background text-foreground shadow-sm font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Upload className="w-3.5 h-3.5" />
+            Upload date
+          </button>
+        </div>
         <button
           onClick={() => setShowPicker(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
