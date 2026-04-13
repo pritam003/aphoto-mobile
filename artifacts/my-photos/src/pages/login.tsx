@@ -128,23 +128,23 @@ export default function LoginPage() {
   const Bg = () => (
     <>
       <style>{ANIM_CSS}</style>
-      {/* Warm gradient base — deep purple → midnight blue */}
+      {/* Light pastel base — lavender → sky → blush */}
       <div className="absolute inset-0"
-        style={{ background: "linear-gradient(145deg,#0f0620 0%,#0a0d2e 40%,#07121f 70%,#0e0520 100%)" }} />
+        style={{ background: "linear-gradient(145deg,#ede9fe 0%,#e0f2fe 40%,#fce7f3 70%,#f0fdf4 100%)" }} />
 
-      {/* Soft color blobs */}
+      {/* Soft pastel blobs */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="absolute rounded-full"
           style={{ width:700,height:700,top:"-15%",left:"-12%",
-            background:"radial-gradient(circle,rgba(139,92,246,0.18) 0%,transparent 65%)",
+            background:"radial-gradient(circle,rgba(167,139,250,0.28) 0%,transparent 65%)",
             animation:"glow-pulse 7s ease-in-out infinite" }} />
         <div className="absolute rounded-full"
           style={{ width:600,height:600,bottom:"-10%",right:"-10%",
-            background:"radial-gradient(circle,rgba(236,72,153,0.14) 0%,transparent 65%)",
+            background:"radial-gradient(circle,rgba(251,113,133,0.22) 0%,transparent 65%)",
             animation:"glow-pulse 9s ease-in-out infinite",animationDelay:"3s" }} />
         <div className="absolute rounded-full"
           style={{ width:500,height:500,top:"30%",right:"15%",
-            background:"radial-gradient(circle,rgba(59,130,246,0.12) 0%,transparent 65%)",
+            background:"radial-gradient(circle,rgba(56,189,248,0.2) 0%,transparent 65%)",
             animation:"glow-pulse 6s ease-in-out infinite",animationDelay:"1.5s" }} />
       </div>
 
@@ -173,8 +173,8 @@ export default function LoginPage() {
       </div>
 
       {/* Fine grid overlay */}
-      <div className="absolute inset-0 opacity-[0.04] pointer-events-none"
-        style={{ backgroundImage:"linear-gradient(rgba(255,255,255,1) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,1) 1px,transparent 1px)", backgroundSize:"48px 48px" }} />
+      <div className="absolute inset-0 opacity-[0.12] pointer-events-none"
+        style={{ backgroundImage:"linear-gradient(rgba(139,92,246,0.4) 1px,transparent 1px),linear-gradient(90deg,rgba(139,92,246,0.4) 1px,transparent 1px)", backgroundSize:"48px 48px" }} />
     </>
   );
 
@@ -186,28 +186,28 @@ export default function LoginPage() {
         <div className="relative z-10 w-full max-w-sm"
           style={{ animation:"card-enter 0.6s cubic-bezier(0.16,1,0.3,1) both" }}>
           <div style={{
-            background:"rgba(15,6,32,0.72)",
+            background:"rgba(255,255,255,0.82)",
             backdropFilter:"blur(28px)",
             WebkitBackdropFilter:"blur(28px)",
-            border:"1px solid rgba(255,255,255,0.1)",
+            border:"1px solid rgba(139,92,246,0.15)",
             borderRadius:28,
             padding:"2.5rem",
-            boxShadow:"0 40px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.08)"
+            boxShadow:"0 24px 64px rgba(139,92,246,0.15), 0 4px 16px rgba(0,0,0,0.06)"
           }}>
             {/* Logo */}
             <div className="flex flex-col items-center gap-2 mb-7">
               <div className="text-5xl" style={{ animation:"soft-float 3s ease-in-out infinite" }}>📸</div>
-              <h2 className="text-xl font-bold text-white tracking-tight">One more step</h2>
-              <p className="text-sm text-white/45">Complete sign-in in your browser</p>
+              <h2 className="text-xl font-bold text-slate-800 tracking-tight">One more step</h2>
+              <p className="text-sm text-slate-500">Complete sign-in in your browser</p>
             </div>
 
             {/* Step 1 */}
             <div className="mb-4" style={{ animation:"fade-up 0.5s 0.1s both" }}>
-              <p className="text-[10px] font-bold text-purple-400 uppercase tracking-widest mb-2">Step 1 — Copy your code</p>
+              <p className="text-[10px] font-bold text-violet-600 uppercase tracking-widest mb-2">Step 1 — Copy your code</p>
               <div onClick={handleCopy} className="group cursor-pointer flex items-center justify-between rounded-2xl px-5 py-4 transition-all"
-                style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.1)" }}>
-                <span className="font-mono text-3xl font-bold text-white tracking-[0.3em]">{userCode}</span>
-                <span className="text-xs text-white/40 group-hover:text-purple-300 transition-colors">
+                style={{ background:"rgba(139,92,246,0.06)", border:"1px solid rgba(139,92,246,0.15)" }}>
+                <span className="font-mono text-3xl font-bold text-slate-800 tracking-[0.3em]">{userCode}</span>
+                <span className="text-xs text-slate-400 group-hover:text-violet-600 transition-colors">
                   {copied ? "✓ Copied!" : "tap to copy"}
                 </span>
               </div>
@@ -215,7 +215,7 @@ export default function LoginPage() {
 
             {/* Step 2 */}
             <div className="mb-5" style={{ animation:"fade-up 0.5s 0.2s both" }}>
-              <p className="text-[10px] font-bold text-purple-400 uppercase tracking-widest mb-2">Step 2 — Open link</p>
+              <p className="text-[10px] font-bold text-violet-600 uppercase tracking-widest mb-2">Step 2 — Open link</p>
               <a href={verificationUri} target="_blank" rel="noopener noreferrer"
                 className="flex items-center justify-center gap-3 w-full py-3.5 rounded-2xl text-white text-sm font-semibold transition-all hover:-translate-y-0.5"
                 style={{ background:"linear-gradient(135deg,#0078D4,#1a56db)", boxShadow:"0 8px 24px rgba(0,120,212,0.35)" }}>
@@ -229,14 +229,14 @@ export default function LoginPage() {
               </a>
             </div>
 
-            <div className="flex items-center gap-2 text-xs text-white/35 mb-5" style={{ animation:"fade-up 0.5s 0.3s both" }}>
-              <span className="w-1.5 h-1.5 rounded-full bg-violet-400 inline-block animate-pulse" />
+            <div className="flex items-center gap-2 text-xs text-slate-400 mb-5" style={{ animation:"fade-up 0.5s 0.3s both" }}>
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-500 inline-block animate-pulse" />
               Waiting for you to sign in…
             </div>
 
             <button onClick={() => { setDeviceCode(null); setUserCode(null); setVerificationUri(null); }}
-              className="w-full py-2.5 rounded-2xl text-sm text-white/35 hover:text-white/65 transition-colors"
-              style={{ border:"1px solid rgba(255,255,255,0.08)" }}>
+              className="w-full py-2.5 rounded-2xl text-sm text-slate-400 hover:text-slate-600 transition-colors"
+              style={{ border:"1px solid rgba(139,92,246,0.15)" }}>
               ← Start over
             </button>
           </div>
@@ -253,13 +253,13 @@ export default function LoginPage() {
       <div className="relative z-10 w-full max-w-[420px]"
         style={{ animation:"card-enter 0.65s cubic-bezier(0.16,1,0.3,1) both" }}>
         <div style={{
-          background:"rgba(12,4,28,0.75)",
+          background:"rgba(255,255,255,0.85)",
           backdropFilter:"blur(32px)",
           WebkitBackdropFilter:"blur(32px)",
-          border:"1px solid rgba(255,255,255,0.1)",
+          border:"1px solid rgba(139,92,246,0.18)",
           borderRadius:32,
           padding:"2.75rem",
-          boxShadow:"0 48px 96px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.1)"
+          boxShadow:"0 32px 72px rgba(139,92,246,0.18), 0 4px 20px rgba(0,0,0,0.06)"
         }}>
 
           {/* Hero emoji + title */}
@@ -275,11 +275,11 @@ export default function LoginPage() {
               </span>
             </div>
 
-            <h1 className="text-[2rem] font-black text-white tracking-tight leading-none mt-1"
+            <h1 className="text-[2rem] font-black text-slate-800 tracking-tight leading-none mt-1"
               style={{ animation:"fade-up 0.5s 0.05s both" }}>
               APhoto
             </h1>
-            <p className="text-sm text-white/45 text-center leading-relaxed"
+            <p className="text-sm text-slate-500 text-center leading-relaxed"
               style={{ animation:"fade-up 0.5s 0.12s both" }}>
               Your memories, beautifully organized
             </p>
@@ -289,20 +289,20 @@ export default function LoginPage() {
           <div className="flex items-center justify-center gap-2 flex-wrap mb-7"
             style={{ animation:"fade-up 0.5s 0.18s both" }}>
             {[["📸","Photos"],["🖼️","Albums"],["❤️","Favorites"],["☁️","Backup"]].map(([icon, label]) => (
-              <div key={label} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-white/55 font-medium"
-                style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.08)" }}>
+              <div key={label} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-slate-600 font-medium"
+                style={{ background:"rgba(139,92,246,0.07)", border:"1px solid rgba(139,92,246,0.14)" }}>
                 <span>{icon}</span>{label}
               </div>
             ))}
           </div>
 
           {/* Divider */}
-          <div className="h-px mb-7" style={{ background:"rgba(255,255,255,0.07)", animation:"fade-up 0.5s 0.22s both" }} />
+          <div className="h-px mb-7" style={{ background:"rgba(139,92,246,0.12)", animation:"fade-up 0.5s 0.22s both" }} />
 
           {/* Error */}
           {error && (
-            <div className="mb-4 px-4 py-3 rounded-2xl text-sm text-rose-300"
-              style={{ background:"rgba(244,63,94,0.1)", border:"1px solid rgba(244,63,94,0.25)" }}>
+            <div className="mb-4 px-4 py-3 rounded-2xl text-sm text-rose-600"
+              style={{ background:"rgba(244,63,94,0.08)", border:"1px solid rgba(244,63,94,0.2)" }}>
               {error === "cancelled" ? "Sign-in was cancelled." :
                error === "expired"   ? "Session expired. Please try again." :
                error === "auth_failed" ? "Authentication failed. Please try again." :
@@ -346,12 +346,12 @@ export default function LoginPage() {
             </button>
           </div>
 
-          <p className="text-[11px] text-center text-white/22 mt-6"
+          <p className="text-[11px] text-center text-slate-400 mt-6"
             style={{ animation:"fade-up 0.5s 0.38s both" }}>
             By signing in you agree to our{" "}
-            <span className="text-white/45 underline underline-offset-2 cursor-pointer hover:text-white/70 transition-colors">Terms</span>
+            <span className="text-slate-500 underline underline-offset-2 cursor-pointer hover:text-slate-800 transition-colors">Terms</span>
             {" "}and{" "}
-            <span className="text-white/45 underline underline-offset-2 cursor-pointer hover:text-white/70 transition-colors">Privacy Policy</span>
+            <span className="text-slate-500 underline underline-offset-2 cursor-pointer hover:text-slate-800 transition-colors">Privacy Policy</span>
           </p>
         </div>
       </div>
