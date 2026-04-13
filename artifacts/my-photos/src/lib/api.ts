@@ -26,5 +26,13 @@ export function groupPhotosByDate(photos: any[]): Record<string, any[]> {
     if (!groups[key]) groups[key] = [];
     groups[key].push(photo);
   }
+  // Sort each month's photos newest-first by capture date
+  for (const key of Object.keys(groups)) {
+    groups[key].sort((a, b) => {
+      const da = new Date(a.takenAt ?? a.uploadedAt).getTime();
+      const db = new Date(b.takenAt ?? b.uploadedAt).getTime();
+      return db - da;
+    });
+  }
   return groups;
 }

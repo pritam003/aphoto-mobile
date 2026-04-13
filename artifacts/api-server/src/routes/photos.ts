@@ -119,7 +119,7 @@ router.get("/photos", async (req: any, res) => {
       .select()
       .from(photosTable)
       .where(and(...conditions))
-      .orderBy(desc(photosTable.uploadedAt))
+      .orderBy(desc(sql`COALESCE(${photosTable.takenAt}, ${photosTable.uploadedAt})`))
       .limit(parseInt(limit))
       .offset(parseInt(offset));
     photos = photos.filter((p: { id: string }) => photoIds.includes(p.id));
@@ -128,7 +128,7 @@ router.get("/photos", async (req: any, res) => {
       .select()
       .from(photosTable)
       .where(and(...conditions))
-      .orderBy(desc(photosTable.uploadedAt))
+      .orderBy(desc(sql`COALESCE(${photosTable.takenAt}, ${photosTable.uploadedAt})`))
       .limit(parseInt(limit))
       .offset(parseInt(offset));
   }
