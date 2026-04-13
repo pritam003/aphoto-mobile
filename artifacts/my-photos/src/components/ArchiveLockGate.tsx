@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Lock, LockOpen, ShieldCheck, ShieldOff, Loader2, X, KeyRound } from "lucide-react";
+import { Lock, LockOpen, ShieldCheck, ShieldOff, Loader2, X, KeyRound, Mail } from "lucide-react";
 import { API_BASE } from "@/lib/api";
 
 export default function ArchiveLockGate({ children }: { children: React.ReactNode }) {
@@ -10,6 +10,14 @@ export default function ArchiveLockGate({ children }: { children: React.ReactNod
   const [code, setCode]                 = useState("");
   const [unlockError, setUnlockError]   = useState("");
   const [unlocking, setUnlocking]       = useState(false);
+
+  // Recovery via email
+  const [showRecovery, setShowRecovery]       = useState(false);
+  const [recoveryStep, setRecoveryStep]       = useState<"idle" | "sending" | "sent">("idle");
+  const [maskedEmail, setMaskedEmail]         = useState("");
+  const [recoveryCode, setRecoveryCode]       = useState("");
+  const [recoveryError, setRecoveryError]     = useState("");
+  const [verifyingRecovery, setVerifyingRec]  = useState(false);
 
   // First-time setup
   const [setupData, setSetupData]       = useState<{ qrDataUrl: string; secret: string } | null>(null);
@@ -86,6 +94,33 @@ export default function ArchiveLockGate({ children }: { children: React.ReactNod
       else { setUnlockError(data.error ?? "Invalid code"); setCode(""); }
     } catch { setUnlockError("Network error"); }
     finally { setUnlocking(false); }
+  };
+
+  const sendRecoveryEmail = async () => {
+    setRecoveryStep("sending"); setRecoveryError("");
+    try {
+      const res = await fetch(`${API_BASE}/archive-lock/send-recovery`, {
+        method: "POST", credentials: "include",
+      });
+      const data = await res.json() as { sent?: boolean; maskedEmail?: string; error?: string };
+      if (data.sent) { setRecoveryStep("sent"); setMaskedEmail(data.maskedEmail ?? "your email"); }
+      else { setRecoveryStep("idle"); setRecoveryError(data.error ?? "Failed to send email"); }
+    } catch { setRecoveryStep("idle"); setRecoveryError("Network error"); }
+  };
+
+  const verifyRecoveryCode = async () => {
+    if (recoveryCode.length !== 6) return;
+    setVerifyingRec(true); setRecoveryError("");
+    try {
+      const res = await fetch(`${API_BASE}/archive-lock/verify-recovery`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ token: recoveryCode }),
+      });
+      const data = await res.json() as { success?: boolean; error?: string };
+      if (data.success) { setSessionOk(true); setShowRecovery(false); }
+      else { setRecoveryError(data.error ?? "Invalid code"); setRecoveryCode(""); }
+    } catch { setRecoveryError("Network error"); }
+    finally { setVerifyingRec(false); }
   };
 
   const handleRemoveLock = async () => {
@@ -184,6 +219,7 @@ export default function ArchiveLockGate({ children }: { children: React.ReactNod
   // ── Lock exists, session not unlocked: PIN screen ────────────────────────────
   if (!sessionOk) {
     return (
+      <>
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-xs p-6 space-y-5">
           <div className="flex flex-col items-center gap-2 text-center">
@@ -244,8 +280,84 @@ export default function ArchiveLockGate({ children }: { children: React.ReactNod
               </button>
             ))}
           </div>
+
+          {/* Recovery link */}
+          <button
+            onClick={() => { setShowRecovery(true); setRecoveryStep("idle"); setRecoveryCode(""); setRecoveryError(""); }}
+            className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors pt-1"
+          >
+            Lost access to authenticator? Recover via email →
+          </button>
         </div>
       </div>
+
+      {/* Recovery modal */}
+      {showRecovery && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-xs p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-primary" />
+                <h2 className="text-sm font-semibold">Email Recovery</h2>
+              </div>
+              <button onClick={() => setShowRecovery(false)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {recoveryStep === "idle" && (
+              <>
+                <p className="text-xs text-muted-foreground">We'll send a one-time 6-digit code to your account email. Enter it here to unlock.</p>
+                {recoveryError && <p className="text-xs text-destructive">{recoveryError}</p>}
+                <button
+                  onClick={sendRecoveryEmail}
+                  disabled={recoveryStep !== "idle"}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                >
+                  <Mail className="w-4 h-4" /> Send recovery code
+                </button>
+              </>
+            )}
+
+            {recoveryStep === "sending" && (
+              <div className="flex items-center justify-center gap-2 py-4">
+                <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                <span className="text-sm text-muted-foreground">Sending…</span>
+              </div>
+            )}
+
+            {recoveryStep === "sent" && (
+              <>
+                <p className="text-xs text-muted-foreground">Code sent to <strong>{maskedEmail}</strong>. Check your inbox (valid 10 min).</p>
+                <input
+                  type="text" inputMode="numeric" maxLength={6} autoFocus
+                  value={recoveryCode}
+                  onChange={e => { setRecoveryCode(e.target.value.replace(/\D/g, "")); setRecoveryError(""); }}
+                  onKeyDown={e => { if (e.key === "Enter") verifyRecoveryCode(); }}
+                  placeholder="000000"
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-center tracking-[0.4em] focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                {recoveryError && <p className="text-xs text-destructive">{recoveryError}</p>}
+                <button
+                  onClick={verifyRecoveryCode}
+                  disabled={recoveryCode.length !== 6 || verifyingRecovery}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                >
+                  {verifyingRecovery ? <Loader2 className="w-4 h-4 animate-spin" /> : <LockOpen className="w-4 h-4" />}
+                  Unlock with email code
+                </button>
+                <button
+                  onClick={() => { setRecoveryStep("idle"); setRecoveryCode(""); setRecoveryError(""); }}
+                  className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Resend code
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+      </>
     );
   }
 

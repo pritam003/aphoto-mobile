@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { createHmac, randomBytes } from "crypto";
+import { createHmac, randomBytes, randomInt } from "crypto";
 import QRCode from "qrcode";
+import nodemailer from "nodemailer";
 import { db, userSettingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
@@ -118,6 +119,79 @@ router.delete("/archive-lock/setup", async (req: any, res) => {
   const userId = req.currentUser.id;
   await db.update(userSettingsTable).set({ archiveTotpSecret: null }).where(eq(userSettingsTable.userId, userId));
   (req.session as any).archiveUnlocked = undefined;
+  res.json({ success: true });
+});
+
+// ─── Email recovery ───────────────────────────────────────────────────────────
+
+// In-memory OTP store: userId → { otp, expiresAt }
+const recoveryOtps = new Map<string, { otp: string; expiresAt: number }>();
+
+function createMailTransport() {
+  const host = process.env.SMTP_HOST;
+  const port = parseInt(process.env.SMTP_PORT ?? "587", 10);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  if (!host || !user || !pass) return null;
+  return nodemailer.createTransport({ host, port, secure: port === 465, auth: { user, pass } });
+}
+
+/** POST /api/archive-lock/send-recovery — email a 6-digit OTP to the user's account email */
+router.post("/archive-lock/send-recovery", async (req: any, res) => {
+  const userId = req.currentUser.id;
+  const userEmail: string | undefined = req.currentUser.email;
+  if (!userEmail) return res.status(400).json({ error: "No email on your account" });
+
+  // Rate-limit: one OTP per 60 s
+  const existing = recoveryOtps.get(userId);
+  if (existing && existing.expiresAt - 9 * 60 * 1000 > Date.now()) {
+    return res.status(429).json({ error: "Please wait 60 seconds before requesting another code" });
+  }
+
+  const otp = randomInt(100000, 999999).toString();
+  recoveryOtps.set(userId, { otp, expiresAt: Date.now() + 10 * 60 * 1000 });
+  setTimeout(() => recoveryOtps.delete(userId), 10 * 60 * 1000);
+
+  const transport = createMailTransport();
+  if (!transport) {
+    return res.status(503).json({ error: "Email service not configured. Contact the administrator." });
+  }
+
+  try {
+    await transport.sendMail({
+      from: `"APhoto" <${process.env.SMTP_USER}>`,
+      to: userEmail,
+      subject: "Your Archive recovery code",
+      text: `Your APhoto Archive recovery code is: ${otp}\n\nThis code expires in 10 minutes. Do not share it with anyone.`,
+      html: `<p>Your <strong>APhoto Archive</strong> recovery code is:</p>
+             <h2 style="letter-spacing:0.3em;font-family:monospace">${otp}</h2>
+             <p>This code expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>`,
+    });
+    // Return masked email so UI can show "sent to pr****@gmail.com"
+    const [local, domain] = userEmail.split("@");
+    const masked = `${local.slice(0, 2)}${"*".repeat(Math.max(local.length - 2, 2))}@${domain}`;
+    res.json({ sent: true, maskedEmail: masked });
+  } catch (err: any) {
+    recoveryOtps.delete(userId);
+    res.status(500).json({ error: "Failed to send email. Please try again." });
+  }
+});
+
+/** POST /api/archive-lock/verify-recovery — verify the emailed OTP, unlock session */
+router.post("/archive-lock/verify-recovery", async (req: any, res) => {
+  const userId = req.currentUser.id;
+  const { token } = req.body as { token?: string };
+  if (!token || !/^\d{6}$/.test(token)) return res.status(400).json({ error: "Invalid token format" });
+
+  const entry = recoveryOtps.get(userId);
+  if (!entry || Date.now() > entry.expiresAt) {
+    recoveryOtps.delete(userId);
+    return res.status(401).json({ error: "Code expired or not requested. Please send a new one." });
+  }
+  if (entry.otp !== token) return res.status(401).json({ error: "Invalid recovery code." });
+
+  recoveryOtps.delete(userId);
+  (req.session as any).archiveUnlocked = true;
   res.json({ success: true });
 });
 
