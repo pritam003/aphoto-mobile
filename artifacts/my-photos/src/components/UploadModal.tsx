@@ -94,9 +94,12 @@ export default function UploadModal({ onClose, albumId, albumName }: UploadModal
         if (f.type.startsWith("image/")) {
           const exif = await exifr.parse(f, {
             pick: ["DateTimeOriginal", "DateTimeDigitized", "CreateDate", "DateTime"],
-          }).catch(() => null);
+          }).catch((err: unknown) => { console.error("[EXIF] parse error:", err); return null; });
+          console.log("[EXIF] raw result:", JSON.stringify(exif), "keys:", exif ? Object.keys(exif) : "null");
           const raw = exif?.DateTimeOriginal ?? exif?.DateTimeDigitized ?? exif?.CreateDate ?? exif?.DateTime;
+          console.log("[EXIF] raw date value:", raw, "type:", typeof raw, "instanceof Date:", raw instanceof Date);
           takenAt = parseExifDate(raw);
+          console.log("[EXIF] takenAt resolved:", takenAt);
         }
         const presignRes = await fetch(`${API_BASE}/photos/presign`, {
           method: "POST",

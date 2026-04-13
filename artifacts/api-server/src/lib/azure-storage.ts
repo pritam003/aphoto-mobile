@@ -75,6 +75,17 @@ export async function deleteBlob(blobName: string): Promise<void> {
   await blobClient.deleteIfExists();
 }
 
+export async function downloadBlob(blobName: string): Promise<Buffer> {
+  const containerClient = getContainerClient();
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+  const downloadResponse = await blockBlobClient.download(0);
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of downloadResponse.readableStreamBody as AsyncIterable<Uint8Array>) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 // Returns a direct public blob URL (container has publicAccess=blob, no SAS needed).
 // In dev, returns an authenticated proxy path instead of the raw Azure URL.
 export function generateSasUrl(blobName: string): string {
