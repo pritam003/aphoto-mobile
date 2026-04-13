@@ -93,29 +93,21 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", onRe
 
   return (
     <>
-      {Object.entries(grouped).map(([month, monthPhotos]) => {
-        const startIndex = photos.findIndex(p => p.id === monthPhotos[0].id);
-        return (
-          <div key={month} className="mb-8" style={{ contentVisibility: "auto", containIntrinsicSize: "0 600px" }}>
-            <h2 className="text-sm font-semibold text-muted-foreground mb-3 px-1">{month}</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1">
-              {monthPhotos.map((photo: any, i: number) => (
-                <PhotoThumbnail
-                  key={photo.id}
-                  photo={photo}
-                  onClick={() => setLightboxIndex(startIndex + i)}
-                  onRemoveFromAlbum={onRemoveFromAlbum}
-                  onTrash={onTrash}
-                  onHide={onHide}
-                  selected={selectedIds.has(photo.id)}
-                  selecting={selecting}
-                  onToggleSelect={handleToggleSelect}
-                />
-              ))}
-            </div>
-          </div>
-        );
-      })}
+      {Object.entries(grouped).map(([month, monthPhotos]) => (
+        <MonthGroup
+          key={month}
+          month={month}
+          monthPhotos={monthPhotos}
+          allPhotos={photos}
+          onOpenLightbox={(idx) => setLightboxIndex(idx)}
+          onRemoveFromAlbum={onRemoveFromAlbum}
+          onTrash={onTrash}
+          onHide={onHide}
+          selectedIds={selectedIds}
+          selecting={selecting}
+          onToggleSelect={handleToggleSelect}
+        />
+      ))}
 
       {lightboxIndex !== null && (
         <Lightbox
@@ -167,6 +159,111 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", onRe
         </div>
       )}
     </>
+  );
+}
+
+const STACK_THRESHOLD = 10;
+
+function StackCell({ hiddenCount, previews, onExpand }: { hiddenCount: number; previews: any[]; onExpand: () => void }) {
+  return (
+    <button
+      onClick={onExpand}
+      className="relative aspect-square overflow-hidden rounded-sm focus:outline-none focus:ring-2 focus:ring-primary"
+      title={`Show ${hiddenCount} more photos`}
+    >
+      {/* Stacked card layers behind (bottom to top) */}
+      {previews.slice(0, 3).reverse().map((photo, i) => (
+        <div
+          key={photo.id}
+          className="absolute inset-0 rounded-sm overflow-hidden border border-background"
+          style={{
+            transform: `translate(${(2 - i) * 4}px, ${(2 - i) * -4}px) rotate(${(2 - i) * 2}deg)`,
+            zIndex: i,
+          }}
+        >
+          <img
+            src={photo.thumbnailUrl || photo.url}
+            alt=""
+            className="w-full h-full object-cover"
+            loading="lazy"
+          />
+          <div className="absolute inset-0 bg-black/20" />
+        </div>
+      ))}
+      {/* Top card with count badge */}
+      <div className="absolute inset-0 rounded-sm overflow-hidden border border-background bg-muted" style={{ zIndex: 3 }}>
+        <img
+          src={previews[0]?.thumbnailUrl || previews[0]?.url}
+          alt=""
+          className="w-full h-full object-cover opacity-60"
+          loading="lazy"
+        />
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40">
+          <span className="text-white font-bold text-xl leading-tight">+{hiddenCount}</span>
+          <span className="text-white/80 text-xs mt-0.5">more</span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function MonthGroup({ month, monthPhotos, allPhotos, onOpenLightbox, onRemoveFromAlbum, onTrash, onHide, selectedIds, selecting, onToggleSelect }: {
+  month: string;
+  monthPhotos: any[];
+  allPhotos: any[];
+  onOpenLightbox: (idx: number) => void;
+  onRemoveFromAlbum?: (photoId: string) => void;
+  onTrash?: (photoId: string) => void;
+  onHide?: (photoId: string) => void;
+  selectedIds: Set<string>;
+  selecting: boolean;
+  onToggleSelect: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hasStack = monthPhotos.length > STACK_THRESHOLD;
+  const visiblePhotos = hasStack && !expanded ? monthPhotos.slice(0, STACK_THRESHOLD - 1) : monthPhotos;
+  const hiddenCount = monthPhotos.length - (STACK_THRESHOLD - 1);
+  const stackPreviews = monthPhotos.slice(STACK_THRESHOLD - 1, STACK_THRESHOLD + 2);
+
+  return (
+    <div className="mb-8" style={{ contentVisibility: "auto", containIntrinsicSize: "0 600px" }}>
+      <div className="flex items-center justify-between mb-3 px-1">
+        <h2 className="text-sm font-semibold text-muted-foreground">{month}</h2>
+        {hasStack && (
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="text-xs text-primary hover:underline"
+          >
+            {expanded ? "Show less" : `Show all ${monthPhotos.length}`}
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1">
+        {visiblePhotos.map((photo: any) => {
+          const globalIdx = allPhotos.findIndex(p => p.id === photo.id);
+          return (
+            <PhotoThumbnail
+              key={photo.id}
+              photo={photo}
+              onClick={() => onOpenLightbox(globalIdx)}
+              onRemoveFromAlbum={onRemoveFromAlbum}
+              onTrash={onTrash}
+              onHide={onHide}
+              selected={selectedIds.has(photo.id)}
+              selecting={selecting}
+              onToggleSelect={onToggleSelect}
+            />
+          );
+        })}
+        {hasStack && !expanded && (
+          <StackCell
+            hiddenCount={hiddenCount}
+            previews={stackPreviews}
+            onExpand={() => setExpanded(true)}
+          />
+        )}
+      </div>
+    </div>
   );
 }
 
