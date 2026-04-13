@@ -317,15 +317,21 @@ function VideoThumbnailCell({ src, isHovered }: { src: string; alt: string; isHo
     };
   }, [inView]);
 
-  // Play on hover, reset to first frame on leave
+  // Play on hover, reset to first frame on leave.
+  // Do NOT guard on frameReady — play() works fine on unloaded video
+  // (browser loads + buffers + starts playing once enough data arrives).
+  // Including frameReady in deps means we re-run when the still frame is
+  // ready, so if the user is still hovering we start playback even if load
+  // was slow.
   useEffect(() => {
     const v = videoRef.current;
-    if (!v || !frameReady) return;
+    if (!v) return;
     if (isHovered) {
       v.play().catch(() => {});
     } else {
       v.pause();
-      v.currentTime = firstFrameTime.current;
+      // Only seek back if video has loaded data (avoids invalid state errors)
+      if (v.readyState >= 1) v.currentTime = firstFrameTime.current;
     }
   }, [isHovered, frameReady]);
 
@@ -339,7 +345,7 @@ function VideoThumbnailCell({ src, isHovered }: { src: string; alt: string; isHo
           muted
           loop
           playsInline
-          preload="auto"
+          preload={isHovered ? "auto" : "metadata"}
         />
       )}
       {/* Pulse placeholder until first frame is ready */}
