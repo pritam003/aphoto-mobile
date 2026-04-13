@@ -7,6 +7,19 @@ import { eq, and, desc, ilike, or, sql } from "drizzle-orm";
 import { uploadBlob, deleteBlob, generateSasUrl, generateUploadSasUrl } from "../lib/azure-storage.js";
 import exifr from "exifr";
 
+/** Parse an EXIF date value which may be a Date object or the non-standard "YYYY:MM:DD HH:MM:SS" string. */
+function parseExifDate(raw: unknown): Date | null {
+  if (!raw) return null;
+  if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw;
+  if (typeof raw === "string") {
+    // EXIF uses colons as date separators: "2021:03:15 14:22:10" → must become "2021-03-15T14:22:10"
+    const normalized = raw.replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3").replace(" ", "T");
+    const d = new Date(normalized);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
 /** Extract the capture date from an image buffer. Returns null for videos or images without EXIF. */
 async function extractTakenAt(buffer: Buffer, mimeType: string): Promise<Date | null> {
   if (!mimeType.startsWith("image/")) return null;
@@ -16,9 +29,7 @@ async function extractTakenAt(buffer: Buffer, mimeType: string): Promise<Date | 
       pick: ["DateTimeOriginal", "DateTimeDigitized", "CreateDate", "DateTime"],
     });
     const raw = exif?.DateTimeOriginal ?? exif?.DateTimeDigitized ?? exif?.CreateDate ?? exif?.DateTime;
-    if (!raw) return null;
-    const d = raw instanceof Date ? raw : new Date(raw);
-    return isNaN(d.getTime()) ? null : d;
+    return parseExifDate(raw);
   } catch {
     return null;
   }

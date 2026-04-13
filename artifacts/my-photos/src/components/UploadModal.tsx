@@ -5,6 +5,19 @@ import { getListPhotosQueryKey, getGetPhotoStatsQueryKey, getListAlbumPhotosQuer
 import { API_BASE } from "@/lib/api";
 import exifr from "exifr";
 
+/** Parse an EXIF date value which may be a Date object or the non-standard "YYYY:MM:DD HH:MM:SS" string. */
+function parseExifDate(raw: unknown): string | null {
+  if (!raw) return null;
+  if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw.toISOString();
+  if (typeof raw === "string") {
+    // EXIF uses colons as date separators: "2021:03:15 14:22:10" → must become "2021-03-15T14:22:10"
+    const normalized = raw.replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3").replace(" ", "T");
+    const d = new Date(normalized);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  return null;
+}
+
 interface UploadModalProps {
   onClose: () => void;
   albumId?: string;
@@ -83,10 +96,7 @@ export default function UploadModal({ onClose, albumId, albumName }: UploadModal
             pick: ["DateTimeOriginal", "DateTimeDigitized", "CreateDate", "DateTime"],
           }).catch(() => null);
           const raw = exif?.DateTimeOriginal ?? exif?.DateTimeDigitized ?? exif?.CreateDate ?? exif?.DateTime;
-          if (raw) {
-            const d = raw instanceof Date ? raw : new Date(raw);
-            if (!isNaN(d.getTime())) takenAt = d.toISOString();
-          }
+          takenAt = parseExifDate(raw);
         }
         const presignRes = await fetch(`${API_BASE}/photos/presign`, {
           method: "POST",
