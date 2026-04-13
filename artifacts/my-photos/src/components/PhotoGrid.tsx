@@ -272,13 +272,13 @@ function MonthGroup({ month, monthPhotos, allPhotos, onOpenLightbox, onRemoveFro
   );
 }
 
-function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
+function VideoThumbnailCell({ src }: { src: string; alt: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(false);
   const [frameReady, setFrameReady] = useState(false);
 
-  // Lazy-mount: only add the <video> element when near the viewport
+  // Lazy-mount: only render the <video> element when near the viewport
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -289,15 +289,34 @@ function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
     return () => obs.disconnect();
   }, []);
 
-  // Seek to just past the first keyframe so the browser paints a real frame.
-  // onSeeked fires once the frame is decoded; onCanPlay is a fallback.
-  const seekToFirstFrame = () => {
+  // Attach native DOM listeners after the video element mounts.
+  // React synthetic onCanPlay/onSeeked miss events that fire before React
+  // attaches handlers (common with fast networks or cached blobs).
+  useEffect(() => {
+    if (!inView) return;
     const v = videoRef.current;
-    if (v && v.readyState >= 1) v.currentTime = 0.001;
-  };
+    if (!v) return;
 
-  // Clicking propagates to the parent <button> which opens the Lightbox —
-  // no inline playback in the tiny thumbnail cell.
+    const markReady = () => setFrameReady(true);
+    const seekToFrame = () => {
+      if (v.duration > 0) v.currentTime = Math.min(1, v.duration * 0.1);
+    };
+
+    v.addEventListener("canplay", markReady);
+    v.addEventListener("seeked", markReady);
+    v.addEventListener("loadedmetadata", seekToFrame);
+
+    // If events already fired before we attached (race condition), handle immediately
+    if (v.readyState >= 3) markReady();
+    else if (v.readyState >= 1) seekToFrame();
+
+    return () => {
+      v.removeEventListener("canplay", markReady);
+      v.removeEventListener("seeked", markReady);
+      v.removeEventListener("loadedmetadata", seekToFrame);
+    };
+  }, [inView]);
+
   return (
     <div ref={containerRef} className="w-full h-full relative pointer-events-none">
       {inView && (
@@ -308,9 +327,6 @@ function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
           muted
           playsInline
           preload="metadata"
-          onLoadedMetadata={seekToFirstFrame}
-          onSeeked={() => setFrameReady(true)}
-          onCanPlay={() => setFrameReady(true)}
         />
       )}
       {/* Pulse placeholder until the first frame is decoded */}
