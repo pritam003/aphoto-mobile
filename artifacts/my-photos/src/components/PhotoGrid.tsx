@@ -339,7 +339,7 @@ function VideoThumbnailCell({ src, isHovered }: { src: string; alt: string; isHo
           muted
           loop
           playsInline
-          preload="metadata"
+          preload="auto"
         />
       )}
       {/* Pulse placeholder until first frame is ready */}
