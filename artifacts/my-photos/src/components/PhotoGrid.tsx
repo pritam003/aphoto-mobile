@@ -302,18 +302,29 @@ function VideoThumbnailCell({ src, isHovered }: { src: string; alt: string; isHo
       firstFrameTime.current = t;
       v.currentTime = t;
     };
+    const onMetadata = () => {
+      seekToFrame();
+      // Mark ready immediately on metadata — the video element will show
+      // whatever frame it has. seeked will fire later with a better frame.
+      markReady();
+    };
 
     v.addEventListener("canplay", markReady);
     v.addEventListener("seeked", markReady);
-    v.addEventListener("loadedmetadata", seekToFrame);
+    v.addEventListener("loadedmetadata", onMetadata);
 
+    // Handle already-loaded state
     if (v.readyState >= 3) { markReady(); }
-    else if (v.readyState >= 1) { seekToFrame(); }
+    else if (v.readyState >= 1) { onMetadata(); }
+
+    // Hard fallback: always clear placeholder after 2s regardless of events
+    const fallback = setTimeout(markReady, 2000);
 
     return () => {
       v.removeEventListener("canplay", markReady);
       v.removeEventListener("seeked", markReady);
-      v.removeEventListener("loadedmetadata", seekToFrame);
+      v.removeEventListener("loadedmetadata", onMetadata);
+      clearTimeout(fallback);
     };
   }, [inView]);
 
