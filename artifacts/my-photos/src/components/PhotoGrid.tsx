@@ -272,115 +272,69 @@ function MonthGroup({ month, monthPhotos, allPhotos, onOpenLightbox, onRemoveFro
   );
 }
 
-function VideoFrameThumbnail({ src, alt, className }: { src: string; alt: string; className: string }) {
-  const [thumb, setThumb] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const generated = useRef(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(entries => {
-      if (!entries[0].isIntersecting || generated.current) return;
-      generated.current = true;
-      observer.disconnect();
-      const video = document.createElement("video");
-      video.crossOrigin = "anonymous";
-      video.preload = "metadata";
-      video.muted = true;
-      video.src = src;
-      video.addEventListener("loadedmetadata", () => { video.currentTime = Math.min(1, video.duration / 2); });
-      video.addEventListener("seeked", () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = video.videoWidth || 320;
-        canvas.height = video.videoHeight || 240;
-        canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
-        setThumb(canvas.toDataURL("image/jpeg", 0.7));
-      });
-      video.addEventListener("error", () => setFailed(true));
-    }, { rootMargin: "200px" });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [src]);
-
-  if (failed) return null;
-  if (!thumb) return <div ref={ref} className={className} />;
-  return <img src={thumb} alt={alt} className={className} />;
-}
-
 function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [thumb, setThumb] = useState<string | null>(null);
+  const [inView, setInView] = useState(false);
+  const [frameReady, setFrameReady] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const generated = useRef(false);
 
+  // Only mount the video element when it scrolls near the viewport
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const observer = new IntersectionObserver(entries => {
-      if (!entries[0].isIntersecting || generated.current) return;
-      generated.current = true;
-      observer.disconnect();
-      const video = document.createElement("video");
-      video.crossOrigin = "anonymous";
-      video.preload = "metadata";
-      video.muted = true;
-      video.src = src;
-      video.addEventListener("loadedmetadata", () => { video.currentTime = Math.min(1, video.duration / 2); });
-      video.addEventListener("seeked", () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = video.videoWidth || 320;
-        canvas.height = video.videoHeight || 240;
-        canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
-        setThumb(canvas.toDataURL("image/jpeg", 0.7));
-      });
-    }, { rootMargin: "200px" });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [src]);
+    const obs = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) { setInView(true); obs.disconnect(); }
+    }, { rootMargin: "300px" });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  // Seek to 0.5 s (or 10 % of duration) to show a real first frame
+  const handleLoadedMetadata = () => {
+    const v = videoRef.current;
+    if (v) v.currentTime = Math.min(0.5, (v.duration || 1) * 0.1);
+  };
 
   const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation(); // prevent lightbox from opening
+    e.stopPropagation();
     if (!videoRef.current) return;
     if (playing) {
       videoRef.current.pause();
-      videoRef.current.currentTime = 0;
       setPlaying(false);
     } else {
-      videoRef.current.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+      videoRef.current.play().then(() => setPlaying(true)).catch(() => {});
     }
   };
 
   return (
-    <div ref={containerRef} className="w-full h-full cursor-pointer" onClick={handleClick}>
-      {/* Still frame — hidden while video plays */}
-      {thumb && (
-        <img
-          src={thumb}
-          alt={alt}
-          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-150 ${playing ? "opacity-0" : "opacity-100"}`}
+    <div ref={containerRef} className="w-full h-full cursor-pointer relative" onClick={handleClick}>
+      {inView && (
+        <video
+          ref={videoRef}
+          src={src}
+          className="w-full h-full object-cover"
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          onLoadedMetadata={handleLoadedMetadata}
+          onSeeked={() => setFrameReady(true)}
+          onEnded={() => setPlaying(false)}
         />
       )}
-      {/* Video always in DOM (preload="none" avoids downloads), play/pause via ref */}
-      <video
-        ref={videoRef}
-        src={src}
-        className={`w-full h-full object-cover transition-opacity duration-150 ${playing ? "opacity-100" : "opacity-0"}`}
-        muted
-        loop
-        playsInline
-        preload="none"
-        onEnded={() => setPlaying(false)}
-        onError={() => setPlaying(false)}
-      />
+      {/* Pulse placeholder until the first frame is ready */}
+      {!frameReady && !playing && (
+        <div className="absolute inset-0 bg-muted animate-pulse" />
+      )}
       {/* Play badge — hidden while playing */}
-      <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-150 ${playing ? "opacity-0" : "opacity-100"}`}>
-        <div className="w-8 h-8 rounded-full bg-black/50 flex items-center justify-center">
-          <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      {!playing && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <div className="w-9 h-9 rounded-full bg-black/55 shadow-md flex items-center justify-center">
+            <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

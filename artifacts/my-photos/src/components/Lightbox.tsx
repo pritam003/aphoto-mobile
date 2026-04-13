@@ -116,12 +116,27 @@ export default function Lightbox({ photos, initialIndex, onClose }: LightboxProp
           </button>
         )}
 
-        <img
-          src={photo.url}
-          alt={photo.filename}
-          className="max-h-full max-w-full object-contain"
-          data-testid="lightbox-image"
-        />
+        {(photo.contentType?.startsWith("video/") || /\.(mp4|mov|webm|avi|mkv)$/i.test(photo.filename || "")) ? (
+          <video
+            key={photo.id}
+            src={photo.url}
+            controls
+            autoPlay
+            muted
+            loop
+            playsInline
+            className="max-h-full max-w-full"
+            controlsList="nodownload"
+            data-testid="lightbox-video"
+          />
+        ) : (
+          <img
+            src={photo.url}
+            alt={photo.filename}
+            className="max-h-full max-w-full object-contain"
+            data-testid="lightbox-image"
+          />
+        )}
 
         {index < photos.length - 1 && (
           <button onClick={next} className="absolute right-4 z-10 p-2 rounded-full bg-black/40 text-white hover:bg-black/60 transition-colors">
