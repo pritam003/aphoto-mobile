@@ -96,7 +96,7 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", onRe
       {Object.entries(grouped).map(([month, monthPhotos]) => {
         const startIndex = photos.findIndex(p => p.id === monthPhotos[0].id);
         return (
-          <div key={month} className="mb-8">
+          <div key={month} className="mb-8" style={{ contentVisibility: "auto", containIntrinsicSize: "0 600px" }}>
             <h2 className="text-sm font-semibold text-muted-foreground mb-3 px-1">{month}</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1">
               {monthPhotos.map((photo: any, i: number) => (
@@ -173,51 +173,70 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", onRe
 function VideoFrameThumbnail({ src, alt, className }: { src: string; alt: string; className: string }) {
   const [thumb, setThumb] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const generated = useRef(false);
 
   useEffect(() => {
-    const video = document.createElement("video");
-    video.crossOrigin = "anonymous";
-    video.preload = "metadata";
-    video.muted = true;
-    video.src = src;
-    video.addEventListener("loadedmetadata", () => {
-      video.currentTime = Math.min(1, video.duration / 2);
-    });
-    video.addEventListener("seeked", () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth || 320;
-      canvas.height = video.videoHeight || 240;
-      canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
-      setThumb(canvas.toDataURL("image/jpeg", 0.7));
-    });
-    video.addEventListener("error", () => setFailed(true));
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(entries => {
+      if (!entries[0].isIntersecting || generated.current) return;
+      generated.current = true;
+      observer.disconnect();
+      const video = document.createElement("video");
+      video.crossOrigin = "anonymous";
+      video.preload = "metadata";
+      video.muted = true;
+      video.src = src;
+      video.addEventListener("loadedmetadata", () => { video.currentTime = Math.min(1, video.duration / 2); });
+      video.addEventListener("seeked", () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth || 320;
+        canvas.height = video.videoHeight || 240;
+        canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+        setThumb(canvas.toDataURL("image/jpeg", 0.7));
+      });
+      video.addEventListener("error", () => setFailed(true));
+    }, { rootMargin: "200px" });
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [src]);
 
-  if (failed || (!thumb)) return null;
+  if (failed) return null;
+  if (!thumb) return <div ref={ref} className={className} />;
   return <img src={thumb} alt={alt} className={className} />;
 }
 
 function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [thumb, setThumb] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
+  const generated = useRef(false);
 
   useEffect(() => {
-    const video = document.createElement("video");
-    video.crossOrigin = "anonymous";
-    video.preload = "metadata";
-    video.muted = true;
-    video.src = src;
-    video.addEventListener("loadedmetadata", () => {
-      video.currentTime = Math.min(1, video.duration / 2);
-    });
-    video.addEventListener("seeked", () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth || 320;
-      canvas.height = video.videoHeight || 240;
-      canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
-      setThumb(canvas.toDataURL("image/jpeg", 0.7));
-    });
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(entries => {
+      if (!entries[0].isIntersecting || generated.current) return;
+      generated.current = true;
+      observer.disconnect();
+      const video = document.createElement("video");
+      video.crossOrigin = "anonymous";
+      video.preload = "metadata";
+      video.muted = true;
+      video.src = src;
+      video.addEventListener("loadedmetadata", () => { video.currentTime = Math.min(1, video.duration / 2); });
+      video.addEventListener("seeked", () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth || 320;
+        canvas.height = video.videoHeight || 240;
+        canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+        setThumb(canvas.toDataURL("image/jpeg", 0.7));
+      });
+    }, { rootMargin: "200px" });
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [src]);
 
   const handleClick = (e: React.MouseEvent) => {
@@ -233,7 +252,7 @@ function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
   };
 
   return (
-    <div className="w-full h-full cursor-pointer" onClick={handleClick}>
+    <div ref={containerRef} className="w-full h-full cursor-pointer" onClick={handleClick}>
       {/* Still frame — hidden while video plays */}
       {thumb && (
         <img
@@ -298,6 +317,7 @@ function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, se
       onClick={() => selecting ? onToggleSelect(photo.id) : onClick()}
       data-testid={`photo-${photo.id}`}
       className="relative aspect-square bg-muted overflow-hidden rounded-sm group focus:outline-none focus:ring-2 focus:ring-primary"
+      style={{ contain: "layout style paint" }}
     >
       {!error ? (
         isVideo ? (
@@ -308,7 +328,7 @@ function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, se
           alt={photo.filename}
           loading="lazy"
           decoding="async"
-          className={`w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 ${loaded ? "opacity-100" : "opacity-0"}`}
+          className={`w-full h-full object-cover ${loaded ? "opacity-100" : "opacity-0"}`}
           onLoad={() => setLoaded(true)}
           onError={() => setError(true)}
         />
