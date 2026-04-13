@@ -80,16 +80,17 @@ export default function GoogleImportModal({ onClose, activeImportId, targetAlbum
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [importId]);
 
-  // Phase C: poll album photos for live thumbnails
+  // Phase C: poll album photos for live thumbnails — newest first, capped to import batch size
   useEffect(() => {
     const albumId = importStatus?.albumId;
+    const total = importStatus?.total ?? 40;
     if (!albumId || importStatus?.status === "error") return;
     const fetch_ = async () => {
       try {
-        const res = await fetch(`${API_BASE}/albums/${albumId}/photos`, { credentials: "include" });
+        const res = await fetch(`${API_BASE}/albums/${albumId}/photos?orderBy=uploaded`, { credentials: "include" });
         if (!res.ok) return;
         const data = await res.json() as { photos: ThumbPhoto[] };
-        if (data.photos?.length) setThumbs(data.photos.slice(0, 40));
+        if (data.photos?.length) setThumbs(data.photos.slice(0, total));
       } catch { /* ignore */ }
     };
     fetch_();
@@ -97,7 +98,7 @@ export default function GoogleImportModal({ onClose, activeImportId, targetAlbum
       thumbPollRef.current = setInterval(fetch_, 3000);
     }
     return () => { if (thumbPollRef.current) clearInterval(thumbPollRef.current); };
-  }, [importStatus?.albumId, importStatus?.status]);
+  }, [importStatus?.albumId, importStatus?.status, importStatus?.total]);
 
   const handleConnect = async () => {
     setConnectError(""); setStarting(true);
