@@ -79,8 +79,14 @@ export default function UploadModal({ onClose, albumId, albumName }: UploadModal
         // Extract EXIF capture date before upload (images only)
         let takenAt: string | null = null;
         if (f.type.startsWith("image/")) {
-          const exif = await exifr.parse(f, { pick: ["DateTimeOriginal"] }).catch(() => null);
-          if (exif?.DateTimeOriginal instanceof Date) takenAt = exif.DateTimeOriginal.toISOString();
+          const exif = await exifr.parse(f, {
+            pick: ["DateTimeOriginal", "DateTimeDigitized", "CreateDate", "DateTime"],
+          }).catch(() => null);
+          const raw = exif?.DateTimeOriginal ?? exif?.DateTimeDigitized ?? exif?.CreateDate ?? exif?.DateTime;
+          if (raw) {
+            const d = raw instanceof Date ? raw : new Date(raw);
+            if (!isNaN(d.getTime())) takenAt = d.toISOString();
+          }
         }
         const presignRes = await fetch(`${API_BASE}/photos/presign`, {
           method: "POST",

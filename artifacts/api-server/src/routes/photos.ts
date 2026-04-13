@@ -7,12 +7,18 @@ import { eq, and, desc, ilike, or, sql } from "drizzle-orm";
 import { uploadBlob, deleteBlob, generateSasUrl, generateUploadSasUrl } from "../lib/azure-storage.js";
 import exifr from "exifr";
 
-/** Extract the DateTimeOriginal from an image buffer. Returns null for videos or images without EXIF. */
+/** Extract the capture date from an image buffer. Returns null for videos or images without EXIF. */
 async function extractTakenAt(buffer: Buffer, mimeType: string): Promise<Date | null> {
   if (!mimeType.startsWith("image/")) return null;
   try {
-    const exif = await exifr.parse(buffer, { pick: ["DateTimeOriginal"] });
-    return exif?.DateTimeOriginal instanceof Date ? exif.DateTimeOriginal : null;
+    // Try all common EXIF/XMP date tags in order of preference
+    const exif = await exifr.parse(buffer, {
+      pick: ["DateTimeOriginal", "DateTimeDigitized", "CreateDate", "DateTime"],
+    });
+    const raw = exif?.DateTimeOriginal ?? exif?.DateTimeDigitized ?? exif?.CreateDate ?? exif?.DateTime;
+    if (!raw) return null;
+    const d = raw instanceof Date ? raw : new Date(raw);
+    return isNaN(d.getTime()) ? null : d;
   } catch {
     return null;
   }
