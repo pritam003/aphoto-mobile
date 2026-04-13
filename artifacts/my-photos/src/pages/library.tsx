@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Search, X, CalendarDays, Upload } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useListPhotos, getListPhotosQueryKey } from "@workspace/api-client-react";
 import PhotoGrid from "@/components/PhotoGrid";
 import { useQueryClient } from "@tanstack/react-query";
@@ -101,32 +101,14 @@ export default function LibraryPage() {
       <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-background/80 backdrop-blur sticky top-0 z-10">
         <h1 className="text-lg font-semibold text-foreground">Photos</h1>
         <div className="flex-1" />
-        <div className="flex items-center gap-1 bg-muted rounded-lg p-0.5">
-          <button
-            onClick={() => handleSortChange("taken")}
-            title="Sort by photo date"
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md transition-colors ${
-              sortOrder === "taken"
-                ? "bg-background text-foreground shadow-sm font-medium"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <CalendarDays className="w-3.5 h-3.5" />
-            Photo date
-          </button>
-          <button
-            onClick={() => handleSortChange("uploaded")}
-            title="Sort by upload date"
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md transition-colors ${
-              sortOrder === "uploaded"
-                ? "bg-background text-foreground shadow-sm font-medium"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Upload className="w-3.5 h-3.5" />
-            Upload date
-          </button>
-        </div>
+        <select
+          value={sortOrder}
+          onChange={e => handleSortChange(e.target.value as "taken" | "uploaded")}
+          className="text-xs px-2 py-1.5 rounded-md border border-border bg-background text-foreground cursor-pointer"
+        >
+          <option value="taken">Date taken</option>
+          <option value="uploaded">Date added</option>
+        </select>
         <div className="relative w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
