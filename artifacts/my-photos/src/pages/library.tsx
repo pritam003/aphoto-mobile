@@ -138,6 +138,7 @@ export default function LibraryPage() {
           <>
             <PhotoGrid
               photos={allPhotos}
+              dateField={sortOrder}
               onHide={handleHidePhoto}
               emptyMessage={search ? "No photos match your search" : "Upload your first photo using the button in the sidebar or by dropping files here"}
             />

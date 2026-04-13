@@ -18,19 +18,25 @@ export function formatDate(dateStr: string | null | undefined): string {
   });
 }
 
-export function groupPhotosByDate(photos: any[]): Record<string, any[]> {
+export function groupPhotosByDate(photos: any[], dateField: "taken" | "uploaded" = "taken"): Record<string, any[]> {
   const groups: Record<string, any[]> = {};
   for (const photo of photos) {
-    const date = new Date(photo.takenAt ?? photo.uploadedAt);
+    const date = dateField === "uploaded"
+      ? new Date(photo.uploadedAt)
+      : new Date(photo.takenAt ?? photo.uploadedAt);
     const key = date.toLocaleDateString("en-US", { year: "numeric", month: "long" });
     if (!groups[key]) groups[key] = [];
     groups[key].push(photo);
   }
-  // Sort each month's photos newest-first by capture date
+  // Sort each month's photos newest-first using the same field
   for (const key of Object.keys(groups)) {
     groups[key].sort((a, b) => {
-      const da = new Date(a.takenAt ?? a.uploadedAt).getTime();
-      const db = new Date(b.takenAt ?? b.uploadedAt).getTime();
+      const da = dateField === "uploaded"
+        ? new Date(a.uploadedAt).getTime()
+        : new Date(a.takenAt ?? a.uploadedAt).getTime();
+      const db = dateField === "uploaded"
+        ? new Date(b.uploadedAt).getTime()
+        : new Date(b.takenAt ?? b.uploadedAt).getTime();
       return db - da;
     });
   }

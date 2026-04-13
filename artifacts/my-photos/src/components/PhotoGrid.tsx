@@ -9,6 +9,7 @@ import { API_BASE } from "@/lib/api";
 interface PhotoGridProps {
   photos: any[];
   emptyMessage?: string;
+  dateField?: "taken" | "uploaded";
   onRemoveFromAlbum?: (photoId: string) => void;
   onTrash?: (photoId: string) => void;
   onBulkTrash?: (ids: string[]) => Promise<void>;
@@ -16,7 +17,7 @@ interface PhotoGridProps {
   onBulkHide?: (ids: string[]) => Promise<void>;
 }
 
-export default function PhotoGrid({ photos, emptyMessage = "No photos yet", onRemoveFromAlbum, onTrash, onBulkTrash, onHide, onBulkHide }: PhotoGridProps) {
+export default function PhotoGrid({ photos, emptyMessage = "No photos yet", dateField = "taken", onRemoveFromAlbum, onTrash, onBulkTrash, onHide, onBulkHide }: PhotoGridProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const queryClient = useQueryClient();
@@ -89,7 +90,7 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", onRe
     );
   }
 
-  const grouped = groupPhotosByDate(photos);
+  const grouped = groupPhotosByDate(photos, dateField);
 
   return (
     <>

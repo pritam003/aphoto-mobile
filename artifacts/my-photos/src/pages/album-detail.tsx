@@ -153,6 +153,7 @@ export default function AlbumDetailPage() {
         ) : (
           <PhotoGrid
             photos={photos}
+            dateField={sortOrder}
             emptyMessage="No photos in this album yet. Upload or add existing photos."
             onRemoveFromAlbum={handleRemoveFromAlbum}
             onTrash={handleTrash}
