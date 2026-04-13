@@ -277,9 +277,8 @@ function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(false);
   const [frameReady, setFrameReady] = useState(false);
-  const [playing, setPlaying] = useState(false);
 
-  // Only mount the video element when it scrolls near the viewport
+  // Lazy-mount: only add the <video> element when near the viewport
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -290,51 +289,40 @@ function VideoThumbnailCell({ src, alt }: { src: string; alt: string }) {
     return () => obs.disconnect();
   }, []);
 
-  // Seek to 0.5 s (or 10 % of duration) to show a real first frame
-  const handleLoadedMetadata = () => {
+  // Seek to just past the first keyframe so the browser paints a real frame.
+  // onSeeked fires once the frame is decoded; onCanPlay is a fallback.
+  const seekToFirstFrame = () => {
     const v = videoRef.current;
-    if (v) v.currentTime = Math.min(0.5, (v.duration || 1) * 0.1);
+    if (v && v.readyState >= 1) v.currentTime = 0.001;
   };
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!videoRef.current) return;
-    if (playing) {
-      videoRef.current.pause();
-      setPlaying(false);
-    } else {
-      videoRef.current.play().then(() => setPlaying(true)).catch(() => {});
-    }
-  };
-
+  // Clicking propagates to the parent <button> which opens the Lightbox —
+  // no inline playback in the tiny thumbnail cell.
   return (
-    <div ref={containerRef} className="w-full h-full cursor-pointer relative" onClick={handleClick}>
+    <div ref={containerRef} className="w-full h-full relative pointer-events-none">
       {inView && (
         <video
           ref={videoRef}
           src={src}
           className="w-full h-full object-cover"
           muted
-          loop
           playsInline
           preload="metadata"
-          onLoadedMetadata={handleLoadedMetadata}
+          onLoadedMetadata={seekToFirstFrame}
           onSeeked={() => setFrameReady(true)}
-          onEnded={() => setPlaying(false)}
+          onCanPlay={() => setFrameReady(true)}
         />
       )}
-      {/* Pulse placeholder until the first frame is ready */}
-      {!frameReady && !playing && (
+      {/* Pulse placeholder until the first frame is decoded */}
+      {(!frameReady || !inView) && (
         <div className="absolute inset-0 bg-muted animate-pulse" />
       )}
-      {/* Play badge — hidden while playing */}
-      {!playing && (
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="w-9 h-9 rounded-full bg-black/55 shadow-md flex items-center justify-center">
-            <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-          </div>
+      {/* Play badge — always visible so user knows it's a video */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className="w-9 h-9 rounded-full bg-black/55 shadow-md flex items-center justify-center">
+          <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
         </div>
-      )}
+      </div>
     </div>
   );
 }

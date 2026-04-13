@@ -122,11 +122,8 @@ export default function Lightbox({ photos, initialIndex, onClose }: LightboxProp
             src={photo.url}
             controls
             autoPlay
-            muted
-            loop
             playsInline
             className="max-h-full max-w-full"
-            controlsList="nodownload"
             data-testid="lightbox-video"
           />
         ) : (
