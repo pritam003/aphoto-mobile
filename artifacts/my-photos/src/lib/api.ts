@@ -21,7 +21,7 @@ export function formatDate(dateStr: string | null | undefined): string {
 export function groupPhotosByDate(photos: any[]): Record<string, any[]> {
   const groups: Record<string, any[]> = {};
   for (const photo of photos) {
-    const date = new Date(photo.uploadedAt);
+    const date = new Date(photo.takenAt ?? photo.uploadedAt);
     const key = date.toLocaleDateString("en-US", { year: "numeric", month: "long" });
     if (!groups[key]) groups[key] = [];
     groups[key].push(photo);

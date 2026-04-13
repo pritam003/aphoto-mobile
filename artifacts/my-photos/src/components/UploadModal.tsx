@@ -3,6 +3,7 @@ import { X, CloudUpload, CheckCircle, AlertCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getListPhotosQueryKey, getGetPhotoStatsQueryKey, getListAlbumPhotosQueryKey, getListAlbumsQueryKey } from "@workspace/api-client-react";
 import { API_BASE } from "@/lib/api";
+import exifr from "exifr";
 
 interface UploadModalProps {
   onClose: () => void;
@@ -75,7 +76,12 @@ export default function UploadModal({ onClose, albumId, albumName }: UploadModal
       try {
         const f = files[i].file;
 
-        // Step 1: get a presigned upload URL from the API
+        // Extract EXIF capture date before upload (images only)
+        let takenAt: string | null = null;
+        if (f.type.startsWith("image/")) {
+          const exif = await exifr.parse(f, { pick: ["DateTimeOriginal"] }).catch(() => null);
+          if (exif?.DateTimeOriginal instanceof Date) takenAt = exif.DateTimeOriginal.toISOString();
+        }
         const presignRes = await fetch(`${API_BASE}/photos/presign`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -103,7 +109,7 @@ export default function UploadModal({ onClose, albumId, albumName }: UploadModal
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ blobName, filename: f.name, contentType: f.type, size: f.size, albumId }),
+            body: JSON.stringify({ blobName, filename: f.name, contentType: f.type, size: f.size, albumId, takenAt }),
           });
           if (!regRes.ok) throw new Error(await regRes.text());
         } else {

@@ -5,6 +5,18 @@ import path from "path";
 import { db, photosTable, albumPhotosTable, albumsTable, shareLinksTable } from "@workspace/db";
 import { eq, and, desc, ilike, or, sql } from "drizzle-orm";
 import { uploadBlob, deleteBlob, generateSasUrl, generateUploadSasUrl } from "../lib/azure-storage.js";
+import exifr from "exifr";
+
+/** Extract the DateTimeOriginal from an image buffer. Returns null for videos or images without EXIF. */
+async function extractTakenAt(buffer: Buffer, mimeType: string): Promise<Date | null> {
+  if (!mimeType.startsWith("image/")) return null;
+  try {
+    const exif = await exifr.parse(buffer, { pick: ["DateTimeOriginal"] });
+    return exif?.DateTimeOriginal instanceof Date ? exif.DateTimeOriginal : null;
+  } catch {
+    return null;
+  }
+}
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
@@ -152,18 +164,21 @@ router.post("/photos/presign", async (req: any, res) => {
 // Saves photo metadata after a direct browser→blob upload.
 router.post("/photos/register", async (req: any, res) => {
   const userId = req.currentUser.id;
-  const { blobName, filename, contentType, size, albumId } = req.body as {
+  const { blobName, filename, contentType, size, albumId, takenAt: takenAtStr } = req.body as {
     blobName: string;
     filename: string;
     contentType: string;
     size: number;
     albumId?: string;
+    takenAt?: string;
   };
   if (!blobName || !filename || !contentType) return res.status(400).json({ error: "blobName, filename and contentType required" });
 
+  const takenAt = takenAtStr ? new Date(takenAtStr) : null;
+
   const [photo] = await db
     .insert(photosTable)
-    .values({ userId, filename, blobName, contentType, size: size || 0 })
+    .values({ userId, filename, blobName, contentType, size: size || 0, takenAt })
     .returning();
 
   if (albumId) {
@@ -192,6 +207,8 @@ router.post("/photos", upload.single("file"), async (req: any, res) => {
 
   await uploadBlob(blobName, req.file.buffer, req.file.mimetype);
 
+  const takenAt = await extractTakenAt(req.file.buffer, req.file.mimetype);
+
   const [photo] = await db
     .insert(photosTable)
     .values({
@@ -201,6 +218,7 @@ router.post("/photos", upload.single("file"), async (req: any, res) => {
       description: req.body.description || null,
       contentType: req.file.mimetype,
       size: req.file.size,
+      takenAt,
     })
     .returning();
 
