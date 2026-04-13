@@ -169,7 +169,7 @@ function StackCell({ hiddenCount, previews, onExpand }: { hiddenCount: number; p
   return (
     <button
       onClick={onExpand}
-      className="relative aspect-square overflow-hidden rounded-sm focus:outline-none focus:ring-2 focus:ring-primary"
+      className="relative aspect-square overflow-hidden rounded-lg focus:outline-none focus:ring-2 focus:ring-primary transition-all duration-200 hover:scale-[1.03] hover:shadow-lg hover:z-10"
       title={`Show ${hiddenCount} more photos`}
     >
       {/* Stacked card layers behind (bottom to top) */}
@@ -227,19 +227,23 @@ function MonthGroup({ month, monthPhotos, allPhotos, onOpenLightbox, onRemoveFro
   const stackPreviews = monthPhotos.slice(STACK_THRESHOLD - 1, STACK_THRESHOLD + 2);
 
   return (
-    <div className="mb-8" style={{ contentVisibility: "auto", containIntrinsicSize: "0 600px" }}>
-      <div className="flex items-center justify-between mb-3 px-1">
-        <h2 className="text-sm font-semibold text-muted-foreground">{month}</h2>
+    <div className="mb-10" style={{ contentVisibility: "auto", containIntrinsicSize: "0 600px" }}>
+      <div className="flex items-center justify-between mb-4 px-1">
+        <div className="flex items-center gap-2.5">
+          <span className="w-1 h-5 rounded-full bg-primary inline-block" />
+          <h2 className="text-base font-bold text-foreground tracking-tight">{month}</h2>
+          <span className="text-xs text-muted-foreground font-normal">({monthPhotos.length})</span>
+        </div>
         {hasStack && (
           <button
             onClick={() => setExpanded(e => !e)}
-            className="text-xs text-primary hover:underline"
+            className="text-xs text-primary hover:text-primary/80 font-medium transition-colors px-2.5 py-1 rounded-full bg-primary/8 hover:bg-primary/14"
           >
             {expanded ? "Show less" : `Show all ${monthPhotos.length}`}
           </button>
         )}
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1.5">
         {visiblePhotos.map((photo: any) => {
           const globalIdx = allPhotos.findIndex(p => p.id === photo.id);
           return (
@@ -414,7 +418,7 @@ function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, se
     <button
       onClick={() => selecting ? onToggleSelect(photo.id) : onClick()}
       data-testid={`photo-${photo.id}`}
-      className="relative aspect-square bg-muted overflow-hidden rounded-sm group focus:outline-none focus:ring-2 focus:ring-primary"
+      className="relative aspect-square bg-muted overflow-hidden rounded-lg group focus:outline-none focus:ring-2 focus:ring-primary transition-all duration-200 hover:scale-[1.03] hover:shadow-lg hover:z-10"
       style={{ contain: "layout style paint" }}
     >
       {!error ? (

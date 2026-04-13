@@ -39,9 +39,10 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark, collaps
 
   return (
     <div
-      className={`fixed left-0 top-0 h-full w-64 flex flex-col bg-sidebar border-r border-sidebar-border z-20 overflow-hidden transition-transform duration-200 will-change-transform ${
+      className={`fixed left-0 top-0 h-full w-64 flex flex-col border-r border-sidebar-border z-20 overflow-hidden transition-transform duration-200 will-change-transform ${
         collapsed ? "-translate-x-[204px]" : "translate-x-0"
       }`}
+      style={{ background: "var(--sidebar, hsl(var(--card)))" }}
     >
       {/* Header / toggle */}
       <button
@@ -49,7 +50,7 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark, collaps
         title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         className="flex items-center gap-2.5 p-4 border-b border-sidebar-border hover:bg-sidebar-accent/40 transition-colors w-full text-left"
       >
-        <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center shrink-0 shadow-sm">
           <Images className="w-4 h-4 text-primary" />
         </div>
         {!collapsed && (
@@ -93,20 +94,27 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark, collaps
               <a
                 data-testid={`nav-${label.toLowerCase()}`}
                 title={collapsed ? label : undefined}
-                className={`flex items-center gap-2.5 px-2 py-2.5 rounded-lg text-sm font-medium transition-colors group ${
+                className={`relative flex items-center gap-2.5 px-2 py-2.5 rounded-xl text-sm font-medium transition-all group ${
                   collapsed ? "justify-center" : "justify-between"
                 } ${
                   isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    ? "bg-primary/10 text-primary shadow-sm"
                     : "text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
                 }`}
               >
+                {isActive && !collapsed && (
+                  <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-primary" />
+                )}
                 <div className={`flex items-center gap-2.5 ${collapsed ? "" : ""}`}>
-                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-primary" : "text-sidebar-foreground/70 group-hover:text-primary/70"}`} />
+                  <Icon className={`w-4 h-4 shrink-0 transition-colors ${
+                    isActive ? "text-primary" : "text-sidebar-foreground/60 group-hover:text-primary/70"
+                  }`} />
                   {!collapsed && label}
                 </div>
                 {!collapsed && (
-                  <span className="text-xs text-muted-foreground tabular-nums min-w-[1.5rem] text-right">
+                  <span className={`text-xs tabular-nums min-w-[1.5rem] text-right font-medium ${
+                    isActive ? "text-primary/70" : "text-muted-foreground"
+                  }`}>
                     {statsLoading
                       ? <span className="inline-block w-5 h-2.5 bg-muted-foreground/15 animate-pulse rounded" />
                       : count !== undefined && count > 0 ? count : null}
@@ -124,9 +132,12 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark, collaps
       {/* Storage */}
       {!collapsed && stats && stats.totalSize > 0 && (
         <div className="px-5 py-3 border-t border-sidebar-border">
-          <p className="text-xs text-muted-foreground">{formatBytes(stats.totalSize)} used</p>
-          <div className="mt-1.5 h-1 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-primary/40 rounded-full w-1/4" />
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-xs text-muted-foreground">{formatBytes(stats.totalSize)} used</p>
+            <p className="text-xs text-muted-foreground/60">of ∞</p>
+          </div>
+          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+            <div className="h-full rounded-full bg-gradient-to-r from-primary/70 to-primary/40 w-1/4" />
           </div>
         </div>
       )}
@@ -145,7 +156,7 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark, collaps
 
         {user && (
           <div className={`flex items-center gap-2.5 px-2 py-2 rounded-lg ${collapsed ? "justify-center" : ""}`}>
-            <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-semibold shrink-0">
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary to-primary/70 flex items-center justify-center text-primary-foreground text-xs font-bold shrink-0 shadow-sm ring-2 ring-primary/20">
               {user.name?.[0]?.toUpperCase() ?? "U"}
             </div>
             {!collapsed && (

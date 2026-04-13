@@ -98,26 +98,26 @@ export default function LibraryPage() {
         </div>
       )}
 
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-background/80 backdrop-blur sticky top-0 z-10">
-        <h1 className="text-lg font-semibold text-foreground">Photos</h1>
+      <div className="flex items-center gap-3 px-6 py-3.5 border-b border-border bg-background/90 backdrop-blur sticky top-0 z-10 shadow-sm">
+        <h1 className="text-lg font-bold text-foreground tracking-tight">Photos</h1>
         <div className="flex-1" />
         <select
           value={sortOrder}
           onChange={e => handleSortChange(e.target.value as "taken" | "uploaded")}
-          className="text-xs px-2 py-1.5 rounded-md border border-border bg-background text-foreground cursor-pointer"
+          className="text-xs px-2.5 py-1.5 rounded-lg border border-border bg-muted text-foreground cursor-pointer hover:bg-muted/80 transition-colors"
         >
           <option value="taken">Date taken</option>
           <option value="uploaded">Date added</option>
         </select>
-        <div className="relative w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <div className="relative w-56">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input
             type="search"
             placeholder="Search photos..."
             value={search}
             onChange={e => handleSearchChange(e.target.value)}
             data-testid="input-search"
-            className="w-full pl-9 pr-8 py-2 text-sm bg-muted rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary placeholder:text-muted-foreground"
+            className="w-full pl-8 pr-8 py-1.5 text-sm bg-muted rounded-xl border border-transparent focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 placeholder:text-muted-foreground transition-all"
           />
           {search && (
             <button onClick={() => handleSearchChange("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
