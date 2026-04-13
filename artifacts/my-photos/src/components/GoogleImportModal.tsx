@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { X, CheckCircle, AlertCircle, Loader2, FolderDown, ExternalLink } from "lucide-react";
+import { X, CheckCircle, AlertCircle, Loader2, FolderDown, ExternalLink, FolderInput } from "lucide-react";
 import { useLocation } from "wouter";
 import { API_BASE } from "@/lib/api";
 
@@ -21,16 +21,41 @@ interface ImportStatus {
 
 export default function GoogleImportModal({ onClose, activeImportId }: GoogleImportModalProps) {
   const [, navigate] = useLocation();
+  const [albumName, setAlbumName] = useState("");
   const [connectError, setConnectError] = useState("");
   const [importId, setImportId] = useState<string | null>(activeImportId ?? null);
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
   const [starting, setStarting] = useState(false);
   const [pickerOpened, setPickerOpened] = useState(false);
+  // state token for polling import-by-state while the OAuth tab is open
+  const [pendingState, setPendingState] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevPickerUri = useRef<string | null>(null);
 
-  // Poll import status while running
+  // Phase A: poll for importId by state (after OAuth new-tab opens, before we have an importId)
+  useEffect(() => {
+    if (!pendingState || importId) return;
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/google/import-by-state/${pendingState}`, { credentials: "include" });
+        if (!res.ok) return;
+        const data = await res.json() as { importId?: string; pending?: boolean };
+        if (data.importId) {
+          setImportId(data.importId);
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+        }
+      } catch {/* keep polling */}
+    };
+    pollRef.current = setInterval(poll, 2000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [pendingState, importId]);
+
+  // Phase B: poll import status once we have an importId
   useEffect(() => {
     if (!importId) return;
+    // Clear any phase-A poller
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
 
     const poll = async () => {
       try {
@@ -38,11 +63,17 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
         if (!res.ok) return;
         const data = await res.json() as ImportStatus;
         setImportStatus(data);
+        // Auto-open picker in new tab when pickerUri first becomes available
+        if (data.pickerUri && data.pickerUri !== prevPickerUri.current) {
+          prevPickerUri.current = data.pickerUri;
+          window.open(data.pickerUri, "_blank", "noopener,noreferrer");
+          setPickerOpened(true);
+        }
         if (data.status === "done" || data.status === "error") {
           clearInterval(pollRef.current!);
           pollRef.current = null;
         }
-      } catch {/* keep polling on network hiccup */}
+      } catch {/* keep polling */}
     };
 
     poll();
@@ -58,14 +89,17 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: "{}",
+        body: JSON.stringify({ albumName: albumName.trim() || "Google Photos Import" }),
       });
-      const data = await res.json() as { authUrl?: string; error?: string };
+      const data = await res.json() as { authUrl?: string; state?: string; error?: string };
       if (!res.ok || !data.authUrl) {
         setConnectError(data.error ?? "Failed to connect. Please try again.");
         return;
       }
-      window.location.href = data.authUrl;
+      // Open Google OAuth in a new tab so the user stays on this modal
+      window.open(data.authUrl, "_blank", "noopener,noreferrer");
+      // Start polling for importId by state
+      setPendingState(data.state!);
     } catch {
       setConnectError("Network error — please try again.");
     } finally {
@@ -92,24 +126,56 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
         </div>
 
         <div className="p-6 space-y-5">
-          {/* Connect step — shown until OAuth redirect */}
-          {!importId && (
+          {/* Step 1 — not yet authenticated / no ongoing import */}
+          {!importId && !pendingState && (
             <>
               <p className="text-sm text-muted-foreground">
-                Sign in with Google to open the Photos Picker and choose which photos to import into your library.
+                Choose a folder name for the imported photos, then sign in with Google to select photos.
               </p>
+              {/* Album/folder name input */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                  <FolderInput className="w-3.5 h-3.5" />
+                  Folder name
+                </label>
+                <input
+                  type="text"
+                  value={albumName}
+                  onChange={e => setAlbumName(e.target.value)}
+                  placeholder="e.g. Summer 2021"
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  onKeyDown={e => { if (e.key === "Enter" && !starting) handleConnect(); }}
+                />
+              </div>
               {connectError && <p className="text-xs text-destructive">{connectError}</p>}
               <button
                 onClick={handleConnect}
                 disabled={starting}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {starting ? <><Loader2 className="w-4 h-4 animate-spin" /> Redirecting…</> : "Connect Google Photos"}
+                {starting ? <><Loader2 className="w-4 h-4 animate-spin" /> Opening Google sign-in…</> : "Connect Google Photos"}
               </button>
             </>
           )}
 
-          {/* Progress — shown after OAuth redirect */}
+          {/* Step 2 — OAuth tab is open, waiting for user to complete sign-in */}
+          {pendingState && !importId && (
+            <div className="flex flex-col items-center gap-4 py-6">
+              <Loader2 className="w-8 h-8 text-primary animate-spin" />
+              <div className="text-center space-y-1">
+                <p className="text-sm font-medium text-foreground">Waiting for Google sign-in…</p>
+                <p className="text-xs text-muted-foreground">Complete sign-in in the new tab that just opened.</p>
+              </div>
+              <button
+                onClick={() => { setPendingState(null); setConnectError(""); }}
+                className="text-xs text-muted-foreground hover:text-foreground underline"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {/* Step 3 — Have importId, show progress */}
           {importId && (
             <div className="space-y-4">
               {!importStatus && (
@@ -119,25 +185,28 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
                 </div>
               )}
 
-              {/* Picking phase: user needs to open picker */}
+              {/* Picking phase */}
               {importStatus?.status === "picking" && (
                 <div className="space-y-4">
                   <div className="flex items-start gap-3">
                     <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0 mt-0.5" />
                     <div>
                       <p className="text-sm font-medium text-foreground">Waiting for photo selection</p>
-                      <p className="text-xs text-muted-foreground">Open the picker, select your photos, then click Done</p>
+                      <p className="text-xs text-muted-foreground">
+                        {pickerOpened
+                          ? "Select photos in the Google Photos tab, then click Done"
+                          : "Opening Google Photos picker…"}
+                      </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => { window.open(importStatus.pickerUri!, "_blank"); setPickerOpened(true); }}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    {pickerOpened ? "Reopen Google Photos Picker" : "Open Google Photos Picker"}
-                  </button>
                   {pickerOpened && (
-                    <p className="text-xs text-center text-muted-foreground">Select your photos in Google Photos, click Done, then wait here — the import will start automatically.</p>
+                    <button
+                      onClick={() => window.open(importStatus.pickerUri!, "_blank", "noopener,noreferrer")}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Reopen Google Photos Picker
+                    </button>
                   )}
                 </div>
               )}
@@ -189,7 +258,7 @@ export default function GoogleImportModal({ onClose, activeImportId }: GoogleImp
 
                   {importStatus.status === "error" && (
                     <button
-                      onClick={() => { setImportId(null); setImportStatus(null); setPickerOpened(false); }}
+                      onClick={() => { setImportId(null); setImportStatus(null); setPickerOpened(false); setPendingState(null); }}
                       className="w-full py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted transition-colors"
                     >
                       Try again

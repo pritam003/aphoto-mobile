@@ -18,8 +18,11 @@ function apiOrigin(req: any): string {
   return `${proto}://${host}`;
 }
 
-// In-memory state store: stateKey -> { userId, redirectUri }
-const pendingStates = new Map<string, { userId: string; redirectUri: string }>();
+// In-memory state store: stateKey -> { userId, redirectUri, albumName }
+const pendingStates = new Map<string, { userId: string; redirectUri: string; albumName: string }>();
+
+// Map state -> importId, written after OAuth callback so the originating tab can resolve it
+const stateToImportId = new Map<string, string>();
 
 // In-memory import status: importId -> status
 interface ImportStatus {
@@ -91,10 +94,9 @@ async function runImport(importId: string, sessionId: string, userId: string, ac
 
     const [newAlbum] = await db
       .insert(albumsTable)
-      .values({ userId, name: "Imported from Google Photos" })
+      .values({ userId, name: status.albumName || "Google Photos Import" })
       .returning();
     status.albumId = newAlbum.id;
-    status.albumName = "Imported from Google Photos";
 
     for (const item of items) {
       try {
@@ -155,16 +157,17 @@ async function runImport(importId: string, sessionId: string, userId: string, ac
   }
 }
 
-// POST /api/google/auth-url — return Google OAuth URL (no album URL needed)
+// POST /api/google/auth-url — return Google OAuth URL
 router.post("/google/auth-url", requireAuth, async (req: any, res) => {
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
     return res.status(503).json({ error: "Google import not configured." });
   }
 
+  const albumName: string = (req.body as any)?.albumName?.trim() || "Google Photos Import";
   const redirectUri = `${apiOrigin(req)}/api/google/callback`;
   const state = randomUUID();
-  pendingStates.set(state, { userId: req.currentUser.id, redirectUri });
-  setTimeout(() => pendingStates.delete(state), 10 * 60 * 1000);
+  pendingStates.set(state, { userId: req.currentUser.id, redirectUri, albumName });
+  setTimeout(() => { pendingStates.delete(state); stateToImportId.delete(state); }, 10 * 60 * 1000);
 
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
@@ -176,7 +179,7 @@ router.post("/google/auth-url", requireAuth, async (req: any, res) => {
     prompt: "select_account consent",
   });
 
-  res.json({ authUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
+  res.json({ authUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params}`, state });
 });
 
 // GET /api/google/callback — exchange code, create picker session, start background import
@@ -230,16 +233,26 @@ router.get("/google/callback", async (req, res) => {
 
   importStatuses.set(importId, {
     status: "picking",
-    albumName: "Google Photos Import",
+    albumName: pending.albumName,
     total: 0,
     imported: 0,
     errors: 0,
     pickerUri: session.pickerUri,
   });
 
+  // Allow originating tab to resolve importId by state
+  stateToImportId.set(state, importId);
+
   runImport(importId, session.id, pending.userId, access_token).catch(console.error);
 
   return res.redirect(`${frontendUrl}/albums?import_id=${importId}`);
+});
+
+// GET /api/google/import-by-state/:state — called by originating tab to get importId after new-tab OAuth
+router.get("/google/import-by-state/:state", requireAuth, (req, res) => {
+  const importId = stateToImportId.get(req.params.state);
+  if (!importId) return res.status(202).json({ pending: true });
+  res.json({ importId });
 });
 
 // GET /api/google/import/:id — poll import progress
