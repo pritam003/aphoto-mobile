@@ -12,6 +12,8 @@ interface GoogleImportModalProps {
   albumDisplayName?: string;
   /** Albums list page: show folder name input so user can create a new album */
   allowCreateAlbum?: boolean;
+  /** Called once when import finishes successfully */
+  onDone?: (albumId?: string) => void;
 }
 
 interface ImportStatus {
@@ -23,7 +25,7 @@ interface ImportStatus {
 
 interface ThumbPhoto { id: string; thumbnailUrl: string; }
 
-export default function GoogleImportModal({ onClose, activeImportId, targetAlbumId, albumDisplayName, allowCreateAlbum }: GoogleImportModalProps) {
+export default function GoogleImportModal({ onClose, activeImportId, targetAlbumId, albumDisplayName, allowCreateAlbum, onDone }: GoogleImportModalProps) {
   const [, navigate] = useLocation();
   const [albumName, setAlbumName] = useState("");
   const [connectError, setConnectError] = useState("");
@@ -35,6 +37,15 @@ export default function GoogleImportModal({ onClose, activeImportId, targetAlbum
   const [collapsed, setCollapsed]   = useState(false);
   const pollRef     = useRef<ReturnType<typeof setInterval> | null>(null);
   const thumbPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const doneFiredRef = useRef(false);
+
+  // Fire onDone once when status transitions to "done"
+  useEffect(() => {
+    if (importStatus?.status === "done" && !doneFiredRef.current) {
+      doneFiredRef.current = true;
+      onDone?.(importStatus.albumId);
+    }
+  }, [importStatus?.status, importStatus?.albumId, onDone]);
 
   // Phase A: poll for importId by state (OAuth tab open)
   useEffect(() => {

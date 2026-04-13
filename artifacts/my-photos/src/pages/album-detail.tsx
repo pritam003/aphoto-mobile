@@ -189,6 +189,7 @@ export default function AlbumDetailPage() {
           onClose={() => setShowGoogleImport(false)}
           targetAlbumId={id}
           albumDisplayName={album?.name ?? ""}
+          onDone={() => queryClient.invalidateQueries({ queryKey: getListAlbumPhotosQueryKey(id) })}
         />
       )}
 
