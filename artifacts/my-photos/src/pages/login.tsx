@@ -75,13 +75,33 @@ const PARTICLES = EMOJIS.map((em, i) => ({
   id: i,
   emoji: em,
   left: `${(i * 137.508 + 5) % 94}%`,
-  size: 18 + ((i * 9) % 18),           // 18–36 px — starts small, grows 3× visually
-  delay: `${(i * 1.35) % 11}s`,
-  dur: `${11 + (i * 1.7) % 8}s`,
-  driftDur: `${4 + (i * 0.7) % 4}s`,
-  ey: `-${88 + (i * 7) % 28}vh`,
-  sx: `${-22 + (i * 9) % 44}px`,
+  size: 18 + ((i * 9) % 18),
+  delay: (i * 1.35) % 11,           // numeric seconds
+  dur:   11 + (i * 1.7) % 8,        // numeric seconds
+  driftDur: 4 + (i * 0.7) % 4,      // numeric seconds
+  eyVh: -(88 + (i * 7) % 28),       // negative number (vh)
+  sxPx: -22 + (i * 9) % 44,         // number (px)
 }));
+
+// Per-particle keyframes with hardcoded values — CSS custom props inside
+// global @keyframes are unreliable across browsers.
+const PARTICLE_CSS = PARTICLES.map(({ id, eyVh, sxPx }) => `
+  @keyframes br${id} {
+    0%   { opacity:0;    transform:translateY(0)                  scale(0.08); }
+    6%   { opacity:1;    transform:translateY(${+(eyVh*0.05).toFixed(2)}vh) scale(0.32); }
+    50%  { opacity:0.88; transform:translateY(${+(eyVh*0.5).toFixed(2)}vh)  scale(0.85); }
+    80%  { opacity:0.72; transform:translateY(${+(eyVh*0.8).toFixed(2)}vh)  scale(1.45); }
+    91%  { opacity:0.38; transform:translateY(${+(eyVh*0.94).toFixed(2)}vh) scale(2.2); }
+    97%  { opacity:0.08; transform:translateY(${+(eyVh*0.99).toFixed(2)}vh) scale(2.9); }
+    100% { opacity:0;    transform:translateY(${eyVh}vh)            scale(3.1); }
+  }
+  @keyframes bd${id} {
+    0%,100% { transform:translateX(0); }
+    30%     { transform:translateX(${+(sxPx*0.45).toFixed(1)}px); }
+    60%     { transform:translateX(${sxPx}px); }
+    80%     { transform:translateX(${+(sxPx*0.3).toFixed(1)}px); }
+  }
+`).join('');
 
 const QUOTES = [
   { text: "Life is a collection of moments. Make them beautiful.", author: "— Unknown" },
@@ -194,7 +214,7 @@ export default function LoginPage() {
   /* ── Shared animated background ─────────────────────────────────────── */
   const Bg = () => (
     <>
-      <style>{ANIM_CSS}</style>
+      <style>{ANIM_CSS + PARTICLE_CSS}</style>
       {/* Light pastel base — lavender → sky → blush */}
       <div className="absolute inset-0"
         style={{ background: "linear-gradient(145deg,#ede9fe 0%,#e0f2fe 40%,#fce7f3 70%,#f0fdf4 100%)" }} />
@@ -226,12 +246,10 @@ export default function LoginPage() {
               fontSize: p.size,
               lineHeight:1,
               opacity:0,
-              ["--ey" as string]: p.ey,
-              ["--sx" as string]: p.sx,
-              animation: `bubble-rise ${p.dur} linear ${p.delay} infinite`,
+              animation: `br${p.id} ${p.dur}s linear ${p.delay}s infinite`,
             }}>
             <span style={{ display:"inline-block",
-              animation:`bubble-drift ${p.driftDur} ease-in-out infinite` }}>
+              animation:`bd${p.id} ${p.driftDur}s ease-in-out infinite` }}>
               {p.emoji}
             </span>
           </div>
