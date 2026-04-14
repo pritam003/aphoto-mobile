@@ -88,23 +88,58 @@ async function runImport(importId: string, sessionId: string, userId: string, ac
     status.status = "importing";
     status.pickerUri = undefined; // no longer needed
 
-    // Phase 2: Fetch all selected media items
+    // Phase 2: Fetch all selected media items (Picker API returns max ~230 per session)
     const items: any[] = [];
     let pageToken: string | undefined;
+    let pageCount = 0;
+    const MAX_RETRIES_PER_PAGE = 3;
     do {
+      pageCount++;
       const url = new URL("https://photospicker.googleapis.com/v1/mediaItems");
       url.searchParams.set("sessionId", sessionId);
       url.searchParams.set("pageSize", "100");
       if (pageToken) url.searchParams.set("pageToken", pageToken);
-      const res = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!res.ok) throw new Error(`Fetch media items error (${res.status}): ${await res.text()}`);
-      const data = await res.json() as { mediaItems?: any[]; nextPageToken?: string };
-      if (data.mediaItems) items.push(...data.mediaItems);
-      pageToken = data.nextPageToken;
+      
+      let success = false;
+      let lastError: string = "";
+      
+      for (let attempt = 0; attempt < MAX_RETRIES_PER_PAGE; attempt++) {
+        try {
+          const res = await fetch(url.toString(), {
+            headers: { Authorization: `Bearer ${accessToken}` },
+            signal: AbortSignal.timeout(30_000),
+          });
+          if (!res.ok) {
+            lastError = `HTTP ${res.status}: ${await res.text()}`;
+            if (res.status === 429 || res.status >= 500) {
+              // Transient error, retry
+              await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
+              continue;
+            }
+            throw new Error(lastError);
+          }
+          const data = await res.json() as { mediaItems?: any[]; nextPageToken?: string };
+          const pageItems = data.mediaItems?.length ?? 0;
+          logger.info({ pageCount, pageItems, totalItems: items.length + pageItems, hasNextToken: !!data.nextPageToken }, "Fetched Picker API page");
+          if (data.mediaItems) items.push(...data.mediaItems);
+          pageToken = data.nextPageToken;
+          success = true;
+          break;
+        } catch (err: any) {
+          lastError = String(err?.message ?? err);
+          if (attempt < MAX_RETRIES_PER_PAGE - 1) {
+            logger.warn({ pageCount, attempt, error: lastError }, "Retrying Picker API page fetch");
+            await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
+          }
+        }
+      }
+      
+      if (!success) {
+        throw new Error(`Failed to fetch page ${pageCount} after ${MAX_RETRIES_PER_PAGE} retries: ${lastError}`);
+      }
     } while (pageToken);
 
+    logger.info({ totalPages: pageCount, totalItems: items.length }, "Finished fetching all media items from Picker API");
     status.total = items.length;
 
     if (items.length === 0) {
