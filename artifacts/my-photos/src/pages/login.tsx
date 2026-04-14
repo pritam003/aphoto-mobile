@@ -79,7 +79,7 @@ const PARTICLES = EMOJIS.map((em, i) => ({
   delay: (i * 1.4) % 12,
   dur:   8 + (i * 1.1) % 6,          // 8–13s — short enough to feel lively
   driftDur: 4 + (i * 0.8) % 3,
-  eyVh: -(92 + (i * 5) % 16),        // -92 to -107vh
+  eyVh: -(100 + (i * 5) % 12),       // -100 to -111vh — enough to reach/exceed viewport top
   sxPx: -30 + (i * 12) % 60,
 }));
 
@@ -235,8 +235,8 @@ export default function LoginPage() {
             animation:"glow-pulse 6s ease-in-out infinite",animationDelay:"1.5s" }} />
       </div>
 
-      {/* Rising emoji particles */}
-      <div className="absolute inset-0 pointer-events-none" style={{ overflow:"visible" }}>
+      {/* Rising emoji particles — fixed so parent overflow:hidden can't clip them */}
+      <div style={{ position:"fixed", inset:0, pointerEvents:"none", overflow:"visible", zIndex:0 }}>
         {PARTICLES.map(p => (
           <div key={p.id}
             style={{
