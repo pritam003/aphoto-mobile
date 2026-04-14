@@ -36,20 +36,25 @@ export function useImport() { return useContext(ImportContext); }
 
 const SESSION_KEY = "aphoto_active_import_id";
 
+// Use localStorage so tracking survives both refresh and tab close
+function saveImportId(id: string)  { try { localStorage.setItem(SESSION_KEY, id); } catch {} }
+function loadImportId(): string | null { try { return localStorage.getItem(SESSION_KEY); } catch { return null; } }
+function removeImportId()           { try { localStorage.removeItem(SESSION_KEY); } catch {} }
+
 export function ImportProvider({ children }: { children: React.ReactNode }) {
   const [importId, setImportIdState] = useState<string | null>(
-    () => sessionStorage.getItem(SESSION_KEY)
+    () => loadImportId()
   );
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const startImport = useCallback((id: string) => {
-    sessionStorage.setItem(SESSION_KEY, id);
+    saveImportId(id);
     setImportIdState(id);
   }, []);
 
   const clearImport = useCallback(() => {
-    sessionStorage.removeItem(SESSION_KEY);
+    removeImportId();
     setImportIdState(null);
     setImportStatus(null);
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -75,6 +80,7 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
       const poll = async () => {
         try {
           const res = await fetch(`${API_BASE}/google/import/${id}`, { credentials: "include" });
+          if (res.status === 404) { clearImport(); return; }
           if (!res.ok) return;
           const data = await res.json() as ImportStatus;
           setImportStatus(data);
@@ -97,6 +103,11 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
     const poll = async () => {
       try {
         const res = await fetch(`${API_BASE}/google/import/${importId}`, { credentials: "include" });
+        if (res.status === 404) {
+          // Server restarted — import state lost, clear tracking
+          clearImport();
+          return;
+        }
         if (!res.ok) return;
         const data = await res.json() as ImportStatus;
         setImportStatus(data);
@@ -116,17 +127,7 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [importId, clearImport]);
 
-  // Warn before refresh while importing
-  useEffect(() => {
-    if (!importId || (importStatus?.status === "done" || importStatus?.status === "error")) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = `Google Photos import is still running (${importStatus?.imported ?? 0}/${importStatus?.total ?? "?"} imported). Refreshing will stop it. Are you sure?`;
-      return e.returnValue;
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [importId, importStatus]);
+  // No beforeunload warning needed — import runs server-side and survives refresh/tab reopen
 
   return (
     <ImportContext.Provider value={{
