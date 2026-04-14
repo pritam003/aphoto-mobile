@@ -2,9 +2,15 @@ import { useState, useEffect, useRef } from "react";
 import { Lock, LockOpen, ShieldCheck, ShieldOff, Loader2, X, KeyRound, Mail, RefreshCw } from "lucide-react";
 import { API_BASE } from "@/lib/api";
 
-export default function ArchiveLockGate({ children, renderHeaderAction }: {
-  children: (manageLockBtn: React.ReactNode) => React.ReactNode;
-  renderHeaderAction?: never;
+export interface LockCtx {
+  unlocked: boolean;
+  locked: boolean | null;
+  lockCard: React.ReactNode;
+  manageLockBtn: React.ReactNode;
+}
+
+export default function ArchiveLockGate({ children }: {
+  children: (ctx: LockCtx) => React.ReactNode;
 }) {
   const [locked, setLocked]             = useState<boolean | null>(null); // null = loading
   const [sessionOk, setSessionOk]       = useState(false);
@@ -58,7 +64,7 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
         fetch(`${API_BASE}/archive-lock/session`, { credentials: "include" }).then(r => r.json() as Promise<{ unlocked: boolean; recoveredViaEmail: boolean }>),
       ]);
       setLocked(ls.locked);
-      setSessionOk(ss.unlocked);
+      // Intentionally NOT restoring ss.unlocked — archive always requires code on each page visit
       setRecoveredSession(ss.recoveredViaEmail ?? false);
     } catch {
       setLocked(false);
@@ -248,158 +254,153 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
     finally { setResetLoading(false); }
   };
 
-  // ── Loading ──────────────────────────────────────────────────────────────────
+  // ── Build lockCard ──────────────────────────────────────────────────────────
+  let lockCard: React.ReactNode = null;
+
   if (locked === null) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
-    );
+    lockCard = <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />;
   }
 
-  // ── No lock yet: must set one up before entering ─────────────────────────────
-  if (!locked) {
-    return (
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-5">
-
-          {/* Step 1: explain & generate QR */}
-          {!setupData && (
-            <>
-              <div className="flex flex-col items-center gap-3 text-center">
-                <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Lock className="w-7 h-7 text-primary" />
-                </div>
-                <h2 className="text-base font-semibold text-foreground">Archive is protected</h2>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  You need to set up a lock before accessing the Archive.<br />
-                  Use <strong>Microsoft Authenticator</strong> (or any TOTP app) for the 6-digit code.
-                </p>
+  if (locked === false) {
+    lockCard = (
+      <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-5">
+        {/* Step 1: explain & generate QR */}
+        {!setupData && (
+          <>
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+                <Lock className="w-7 h-7 text-primary" />
               </div>
-              {setupError && <p className="text-xs text-destructive text-center">{setupError}</p>}
-              <button
-                onClick={startSetup} disabled={setupLoading}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-              >
-                {setupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-                Set up lock
-              </button>
-            </>
-          )}
-
-          {/* Step 2: show QR + confirm code */}
-          {setupData && (
-            <>
-              <div className="flex flex-col items-center gap-2 text-center">
-                <ShieldCheck className="w-6 h-6 text-primary" />
-                <h2 className="text-sm font-semibold text-foreground">Scan with Microsoft Authenticator</h2>
-                <p className="text-xs text-muted-foreground">Then enter the 6-digit code below to confirm.</p>
-              </div>
-              <div className="flex justify-center">
-                <img src={setupData.qrDataUrl} alt="TOTP QR code" className="w-44 h-44 rounded-xl border border-border" />
-              </div>
-              <input
-                type="text" inputMode="numeric" maxLength={6}
-                value={setupCode} onChange={e => setSetupCode(e.target.value.replace(/\D/g, ""))}
-                placeholder="000000" autoFocus
-                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-center tracking-[0.4em] focus:outline-none focus:ring-2 focus:ring-primary"
-                onKeyDown={e => { if (e.key === "Enter") confirmSetup(); }}
-              />
-              {setupError && <p className="text-xs text-destructive text-center">{setupError}</p>}
-              <button
-                onClick={confirmSetup} disabled={setupCode.length !== 6 || setupLoading}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-              >
-                {setupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LockOpen className="w-4 h-4" />}
-                Confirm &amp; unlock
-              </button>
-              <button onClick={() => { setSetupData(null); setSetupCode(""); setSetupError(""); }}
-                className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
-                ← Back
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Lock exists, session not unlocked: PIN screen ────────────────────────────
-  if (!sessionOk) {
-    return (
-      <>
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-xs p-6 space-y-5">
-          <div className="flex flex-col items-center gap-2 text-center">
-            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-              <Lock className="w-6 h-6 text-primary" />
+              <h2 className="text-base font-semibold text-foreground">Archive is protected</h2>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Set up a lock before accessing the Archive.<br />
+                Use <strong>Microsoft Authenticator</strong> (or any TOTP app) for the 6-digit code.
+              </p>
             </div>
-            <h2 className="text-base font-semibold text-foreground">Archive is locked</h2>
-            <p className="text-xs text-muted-foreground">Enter the 6-digit code from Microsoft Authenticator</p>
+            {setupError && <p className="text-xs text-destructive text-center">{setupError}</p>}
+            <button
+              onClick={startSetup} disabled={setupLoading}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {setupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+              Set up lock
+            </button>
+          </>
+        )}
+
+        {/* Step 2: show QR + confirm code */}
+        {setupData && (
+          <>
+            <div className="flex flex-col items-center gap-2 text-center">
+              <ShieldCheck className="w-6 h-6 text-primary" />
+              <h2 className="text-sm font-semibold text-foreground">Scan with Microsoft Authenticator</h2>
+              <p className="text-xs text-muted-foreground">Then enter the 6-digit code below to confirm.</p>
+            </div>
+            <div className="flex justify-center">
+              <img src={setupData.qrDataUrl} alt="TOTP QR code" className="w-44 h-44 rounded-xl border border-border" />
+            </div>
+            <input
+              type="text" inputMode="numeric" maxLength={6}
+              value={setupCode} onChange={e => setSetupCode(e.target.value.replace(/\D/g, ""))}
+              placeholder="000000" autoFocus
+              className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-center tracking-[0.4em] focus:outline-none focus:ring-2 focus:ring-primary"
+              onKeyDown={e => { if (e.key === "Enter") confirmSetup(); }}
+            />
+            {setupError && <p className="text-xs text-destructive text-center">{setupError}</p>}
+            <button
+              onClick={confirmSetup} disabled={setupCode.length !== 6 || setupLoading}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {setupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LockOpen className="w-4 h-4" />}
+              Confirm &amp; unlock
+            </button>
+            <button onClick={() => { setSetupData(null); setSetupCode(""); setSetupError(""); }}
+              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors">
+              ← Back
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  if (locked === true && !sessionOk) {
+    lockCard = (
+      <div className="bg-card border border-border rounded-2xl shadow-xl w-full max-w-xs p-6 space-y-5">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <Lock className="w-6 h-6 text-primary" />
           </div>
-
-          {/* Visual digit boxes */}
-          <div
-            className="flex gap-2 justify-center cursor-text"
-            onClick={() => inputRef.current?.focus()}
-          >
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className={`w-9 h-11 rounded-lg border text-base font-semibold flex items-center justify-center
-                ${code.length === i ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-muted"} text-foreground`}>
-                {code[i] ? "•" : ""}
-              </div>
-            ))}
-          </div>
-
-          {/* Hidden real input captures keyboard */}
-          <input
-            ref={inputRef}
-            type="text" inputMode="numeric" maxLength={6}
-            value={code}
-            onChange={e => { setCode(e.target.value.replace(/\D/g, "")); setUnlockError(""); }}
-            onKeyDown={e => { if (e.key === "Enter") handleUnlock(); }}
-            className="sr-only" aria-label="6-digit authenticator code"
-          />
-
-          {unlockError && <p className="text-xs text-destructive text-center">{unlockError}</p>}
-
-          <button
-            onClick={handleUnlock} disabled={code.length !== 6 || unlocking}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-          >
-            {unlocking ? <Loader2 className="w-4 h-4 animate-spin" /> : <LockOpen className="w-4 h-4" />}
-            Unlock
-          </button>
-
-          {/* Number pad */}
-          <div className="grid grid-cols-3 gap-2">
-            {["1","2","3","4","5","6","7","8","9","","0","⌫"].map((k) => (
-              <button key={k} disabled={!k}
-                onClick={() => {
-                  if (k === "⌫") { setCode(c => c.slice(0, -1)); }
-                  else if (k && code.length < 6) { setCode(c => c + k); }
-                  setUnlockError("");
-                }}
-                className={`h-11 rounded-lg text-sm font-medium transition-colors
-                  ${k ? "bg-muted hover:bg-muted/70 active:scale-95 text-foreground" : "invisible"}
-                  ${k === "⌫" ? "text-destructive" : ""}`}
-              >
-                {k}
-              </button>
-            ))}
-          </div>
-
-          {/* Recovery link */}
-          <button
-            onClick={() => { setShowRecovery(true); setRecoveryStep("idle"); setRecoveryCode(""); setRecoveryError(""); }}
-            className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors pt-1"
-          >
-            Lost access to authenticator? Recover via email →
-          </button>
+          <h2 className="text-base font-semibold text-foreground">Archive is locked</h2>
+          <p className="text-xs text-muted-foreground">Enter the 6-digit code from Microsoft Authenticator</p>
         </div>
+
+        {/* Visual digit boxes */}
+        <div
+          className="flex gap-2 justify-center cursor-text"
+          onClick={() => inputRef.current?.focus()}
+        >
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className={`w-9 h-11 rounded-lg border text-base font-semibold flex items-center justify-center
+              ${code.length === i ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-muted"} text-foreground`}>
+              {code[i] ? "•" : ""}
+            </div>
+          ))}
+        </div>
+
+        {/* Hidden input captures keyboard */}
+        <input
+          ref={inputRef}
+          type="text" inputMode="numeric" maxLength={6}
+          value={code}
+          onChange={e => { setCode(e.target.value.replace(/\D/g, "")); setUnlockError(""); }}
+          onKeyDown={e => { if (e.key === "Enter") handleUnlock(); }}
+          className="sr-only" aria-label="6-digit authenticator code"
+        />
+
+        {unlockError && <p className="text-xs text-destructive text-center">{unlockError}</p>}
+
+        <button
+          onClick={handleUnlock} disabled={code.length !== 6 || unlocking}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+        >
+          {unlocking ? <Loader2 className="w-4 h-4 animate-spin" /> : <LockOpen className="w-4 h-4" />}
+          Unlock
+        </button>
+
+        {/* Gmail recovery link — visible directly on lock screen */}
+        <button
+          onClick={() => { setShowRecovery(true); setRecoveryStep("idle"); setRecoveryCode(""); setRecoveryError(""); }}
+          className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors pt-1"
+        >
+          Forgot access? Recover via Gmail →
+        </button>
+      </div>
+    );
+  }
+
+  // ── manageLockBtn (only when unlocked) ──────────────────────────────────────
+  const manageLockBtn: React.ReactNode = sessionOk ? (
+    <button
+      onClick={() => setShowRemove(true)}
+      className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+        recoveredSession
+          ? "border-amber-400/50 text-amber-500 hover:text-amber-600 hover:bg-amber-50/10"
+          : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+      }`}
+    >
+      {recoveredSession ? <RefreshCw className="w-4 h-4" /> : <KeyRound className="w-4 h-4" />}
+      {recoveredSession ? "Setup new authenticator" : "Manage lock"}
+    </button>
+  ) : null;
+
+  return (
+    <>
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {children({ unlocked: sessionOk, locked, lockCard, manageLockBtn })}
       </div>
 
-      {/* Recovery modal */}
+      {/* Recovery modal — rendered outside children so it floats above everything */}
       {showRecovery && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-xs p-6 space-y-4">
@@ -411,7 +412,7 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
                 <h2 className="text-sm font-semibold">
                   {recoveryStep === "choose" ? "Recovery successful"
                     : recoveryStep === "newqr" || recoveryStep === "newqr-loading" ? "Set up new authenticator"
-                    : "Email Recovery"}
+                    : "Gmail Recovery"}
                 </h2>
               </div>
               <button onClick={() => setShowRecovery(false)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
@@ -419,7 +420,6 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
               </button>
             </div>
 
-            {/* Step 1 — request email */}
             {recoveryStep === "idle" && (
               <>
                 <p className="text-xs text-muted-foreground">We'll send a one-time 6-digit code to your account email to verify it's you.</p>
@@ -433,7 +433,6 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
               </>
             )}
 
-            {/* Step 1b — sending spinner */}
             {recoveryStep === "sending" && (
               <div className="flex items-center justify-center gap-2 py-4">
                 <Loader2 className="w-5 h-5 animate-spin text-primary" />
@@ -441,7 +440,6 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
               </div>
             )}
 
-            {/* Step 2 — enter email OTP */}
             {recoveryStep === "sent" && (
               <>
                 <p className="text-xs text-muted-foreground">Code sent to <strong>{maskedEmail}</strong>. Enter it below (valid 10 min).</p>
@@ -471,7 +469,6 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
               </>
             )}
 
-            {/* Step 3 — choose: set up new authenticator OR keep existing */}
             {recoveryStep === "choose" && (
               <>
                 <p className="text-xs text-muted-foreground text-center">Identity verified. What would you like to do next?</p>
@@ -499,7 +496,6 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
               </>
             )}
 
-            {/* Step 3b — generating new QR spinner */}
             {recoveryStep === "newqr-loading" && (
               <div className="flex items-center justify-center gap-2 py-4">
                 <Loader2 className="w-5 h-5 animate-spin text-primary" />
@@ -507,7 +503,6 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
               </div>
             )}
 
-            {/* Step 4 — scan new QR and confirm */}
             {recoveryStep === "newqr" && recoveryNewQr && (
               <>
                 <p className="text-xs text-muted-foreground text-center">Scan with Microsoft Authenticator, then enter the 6-digit code to confirm.</p>
@@ -542,28 +537,9 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
           </div>
         </div>
       )}
-      </>
-    );
-  }
 
-  const manageLockBtn = (
-    <button
-      onClick={() => setShowRemove(true)}
-      className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${
-        recoveredSession
-          ? "border-amber-400/50 text-amber-500 hover:text-amber-600 hover:bg-amber-50/10"
-          : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
-      }`}
-    >
-      {recoveredSession ? <RefreshCw className="w-4 h-4" /> : <KeyRound className="w-4 h-4" />}
-      {recoveredSession ? "Setup new authenticator" : "Manage lock"}
-    </button>
-  );
-
-  // ── Unlocked: show archive with "Manage lock" button ────────────────────────
-  return (
-    <>
-      {showRemove && (
+      {/* Manage lock modal — only when unlocked */}
+      {showRemove && sessionOk && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-xs p-6 space-y-4">
             <div className="flex items-center justify-between">
@@ -584,7 +560,6 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
               </button>
             </div>
 
-            {/* Menu view */}
             {manageLockView === "menu" && (
               <div className="flex flex-col gap-3">
                 <button
@@ -611,11 +586,9 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
               </div>
             )}
 
-            {/* Remove view */}
             {manageLockView === "remove" && (
               <>
                 {recoveredSession ? (
-                  // Identity already verified via email — no TOTP needed
                   <>
                     <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50/10 border border-amber-400/30">
                       <Mail className="w-4 h-4 text-amber-500 shrink-0" />
@@ -631,7 +604,6 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
                     </button>
                   </>
                 ) : (
-                  // Normal path — verify with TOTP
                   <>
                     <p className="text-xs text-muted-foreground">Enter your current authenticator code to confirm removal.</p>
                     <input
@@ -656,7 +628,6 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
               </>
             )}
 
-            {/* Reset — verify current TOTP first (skipped if recovered session) */}
             {manageLockView === "reset-verify" && (
               <>
                 <p className="text-xs text-muted-foreground">Enter your current authenticator code to proceed.</p>
@@ -680,7 +651,6 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
               </>
             )}
 
-            {/* Reset — scan new QR and confirm */}
             {manageLockView === "reset-qr" && resetQrData && (
               <>
                 <p className="text-xs text-muted-foreground text-center">Scan with Microsoft Authenticator, then enter the 6-digit code to confirm.</p>
@@ -707,10 +677,6 @@ export default function ArchiveLockGate({ children, renderHeaderAction }: {
           </div>
         </div>
       )}
-
-      <div className="flex-1 flex flex-col h-full">
-        {children(manageLockBtn)}
-      </div>
     </>
   );
 }

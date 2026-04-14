@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { API_BASE } from "@/lib/api";
@@ -35,9 +35,32 @@ const ANIM_CSS = `
   @keyframes spin {
     to { transform:rotate(360deg); }
   }
-  @keyframes soft-float {
-    0%,100% { transform:translateY(0); }
-    50%     { transform:translateY(-12px); }
+  @keyframes shutter {
+    0%   { transform: scale(1)    rotate(0deg);   filter:drop-shadow(0 8px 24px rgba(139,92,246,0.5)); }
+    15%  { transform: scale(0.78) rotate(-8deg);  filter:drop-shadow(0 2px 6px  rgba(139,92,246,0.3)) brightness(0.7); }
+    30%  { transform: scale(1.22) rotate(6deg);   filter:drop-shadow(0 12px 32px rgba(255,220,50,0.8)) brightness(1.4); }
+    50%  { transform: scale(1.05) rotate(-3deg);  filter:drop-shadow(0 8px 24px rgba(139,92,246,0.6)); }
+    70%  { transform: scale(1.0)  rotate(2deg); }
+    100% { transform: scale(1)    rotate(0deg);   filter:drop-shadow(0 8px 24px rgba(139,92,246,0.5)); }
+  }
+  @keyframes flash-in {
+    0%   { opacity:0; transform:translateY(6px) scale(0.8); }
+    30%  { opacity:1; transform:translateY(-4px) scale(1.12); }
+    70%  { opacity:1; transform:translateY(0)   scale(1); }
+    100% { opacity:0; transform:translateY(-8px) scale(0.9); }
+  }
+  @keyframes quote-fade {
+    0%   { opacity:0; transform:translateY(6px); }
+    20%  { opacity:1; transform:translateY(0); }
+    100% { opacity:1; transform:translateY(0); }
+  }
+  @keyframes camera-idle {
+    0%   { transform: scale(1)    rotate(0deg); }
+    10%  { transform: scale(1.35) rotate(-4deg); }
+    22%  { transform: scale(0.82) rotate(5deg); }
+    34%  { transform: scale(1.12) rotate(-2deg); }
+    46%  { transform: scale(1.0)  rotate(0deg); }
+    100% { transform: scale(1)    rotate(0deg); }
   }
 `;
 
@@ -56,6 +79,16 @@ const PARTICLES = EMOJIS.map((em, i) => ({
   sx: `${-18 + (i * 8) % 36}px`,
 }));
 
+const QUOTES = [
+  { text: "Life is a collection of moments. Make them beautiful.", author: "— Unknown" },
+  { text: "One day or day one. You decide.", author: "— Paulo Coelho" },
+  { text: "Happiness is not something ready-made. It comes from your own actions.", author: "— Dalai Lama" },
+  { text: "The best thing to hold onto in life is each other.", author: "— Audrey Hepburn" },
+  { text: "In every smile there is a memory worth keeping.", author: "— Unknown" },
+  { text: "Photography is the story I fail to put into words.", author: "— Destin Sparks" },
+  { text: "A photograph is a pause button on life.", author: "— Ty Holland" },
+];
+
 export default function LoginPage() {
   const { isAuthenticated, isLoading } = useAuth();
   const [, navigate] = useLocation();
@@ -65,6 +98,30 @@ export default function LoginPage() {
   const [userCode, setUserCode] = useState<string | null>(null);
   const [verificationUri, setVerificationUri] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Camera animation
+  const [cameraClicked, setCameraClicked] = useState(false);
+  const [showSmile, setShowSmile] = useState(false);
+  const [smileText, setSmileText] = useState("Say Cheese! 🧀");
+  const smileTexts = ["Say Cheese! 🧀", "Smile! 😄", "Click! 📸", "Perfect! ✨", "Beautiful! 🌟"];
+  const smileIdx = useRef(0);
+  const [quoteIdx, setQuoteIdx] = useState(() => Math.floor(Math.random() * QUOTES.length));
+
+  // Auto-fire camera click every 3.5s
+  useEffect(() => {
+    const fire = () => {
+      smileIdx.current = (smileIdx.current + 1) % smileTexts.length;
+      setSmileText(smileTexts[smileIdx.current]);
+      setCameraClicked(true);
+      setShowSmile(true);
+      setTimeout(() => setShowSmile(false), 1400);
+      setTimeout(() => setCameraClicked(false), 700);
+    };
+    const t = setInterval(fire, 3500);
+    // Fire once on mount after a short delay
+    const init = setTimeout(fire, 800);
+    return () => { clearInterval(t); clearTimeout(init); };
+  }, []);
 
   const [error, setError] = useState<string | null>(() => {
     const p = new URLSearchParams(window.location.search);
@@ -99,6 +156,12 @@ export default function LoginPage() {
     }, 2000);
     return () => clearInterval(interval);
   }, [deviceCode, navigate]);
+
+  // Rotate quote every 6s
+  useEffect(() => {
+    const t = setInterval(() => setQuoteIdx(i => (i + 1) % QUOTES.length), 6000);
+    return () => clearInterval(t);
+  }, []);
 
   const handleMicrosoftLogin = async () => {
     setMsLoading(true); setError(null);
@@ -204,11 +267,14 @@ export default function LoginPage() {
             {/* Step 1 */}
             <div className="mb-4" style={{ animation:"fade-up 0.5s 0.1s both" }}>
               <p className="text-[10px] font-bold text-violet-600 uppercase tracking-widest mb-2">Step 1 — Copy your code</p>
-              <div onClick={handleCopy} className="group cursor-pointer flex items-center justify-between rounded-2xl px-5 py-4 transition-all"
+              <div onClick={handleCopy} className="group cursor-pointer flex flex-col items-center gap-2 rounded-2xl px-5 py-4 transition-all active:scale-95"
                 style={{ background:"rgba(139,92,246,0.06)", border:"1px solid rgba(139,92,246,0.15)" }}>
-                <span className="font-mono text-3xl font-bold text-slate-800 tracking-[0.3em]">{userCode}</span>
-                <span className="text-xs text-slate-400 group-hover:text-violet-600 transition-colors">
-                  {copied ? "✓ Copied!" : "tap to copy"}
+                <span className="font-mono text-2xl font-bold text-slate-800 tracking-[0.25em] w-full text-center">{userCode}</span>
+                <span className="flex items-center gap-1.5 text-xs text-slate-400 group-hover:text-violet-600 transition-colors">
+                  <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                  </svg>
+                  {copied ? "✓ Copied!" : "Tap to copy"}
                 </span>
               </div>
             </div>
@@ -264,18 +330,40 @@ export default function LoginPage() {
 
           {/* Hero emoji + title */}
           <div className="flex flex-col items-center gap-3 mb-8">
-            {/* Big camera with floating ring */}
-            <div className="relative flex items-center justify-center">
+            {/* Auto-animated camera */}
+            <div className="relative flex items-center justify-center select-none">
               <div className="absolute w-24 h-24 rounded-full"
                 style={{ background:"radial-gradient(circle,rgba(139,92,246,0.35),transparent 70%)",
                   animation:"glow-pulse 2.8s ease-in-out infinite" }} />
-              <span className="relative text-[64px] leading-none select-none"
-                style={{ animation:"soft-float 3.5s ease-in-out infinite", filter:"drop-shadow(0 8px 24px rgba(139,92,246,0.5))" }}>
+              <span className="relative text-[64px] leading-none"
+                style={{
+                  animation: cameraClicked
+                    ? "shutter 0.65s cubic-bezier(0.36,0.07,0.19,0.97) forwards"
+                    : "camera-idle 3.5s ease-in-out infinite",
+                  filter:"drop-shadow(0 8px 24px rgba(139,92,246,0.5))",
+                  display:"inline-block",
+                }}>
                 📷
               </span>
+              {/* Flash overlay */}
+              {cameraClicked && (
+                <div className="absolute inset-0 rounded-full pointer-events-none"
+                  style={{ background:"rgba(255,255,255,0.7)", animation:"shutter 0.3s ease-out both" }} />
+              )}
+              {/* "Say Cheese!" pop */}
+              {showSmile && (
+                <div className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full text-sm font-bold text-white whitespace-nowrap pointer-events-none"
+                  style={{
+                    background:"linear-gradient(135deg,#a855f7,#ec4899)",
+                    boxShadow:"0 4px 16px rgba(168,85,247,0.5)",
+                    animation:"flash-in 1.4s ease-out both",
+                  }}>
+                  {smileText}
+                </div>
+              )}
             </div>
 
-            <h1 className="text-[2rem] font-black text-slate-800 tracking-tight leading-none mt-1"
+            <h1 className="text-[2rem] font-black text-slate-800 tracking-tight leading-none mt-3"
               style={{ animation:"fade-up 0.5s 0.05s both" }}>
               APhoto
             </h1>
@@ -283,6 +371,16 @@ export default function LoginPage() {
               style={{ animation:"fade-up 0.5s 0.12s both" }}>
               Your memories, beautifully organized
             </p>
+
+            {/* Rotating happiness quote */}
+            <div className="mt-2 px-4 py-3 rounded-2xl text-center max-w-xs"
+              style={{ background:"rgba(139,92,246,0.06)", border:"1px solid rgba(139,92,246,0.12)" }}>
+              <p key={quoteIdx} className="text-xs text-slate-600 italic leading-relaxed"
+                style={{ animation:"quote-fade 0.8s ease-out forwards" }}>
+                "{QUOTES[quoteIdx].text}"
+              </p>
+              <p className="text-[10px] text-violet-400 font-medium mt-1">{QUOTES[quoteIdx].author}</p>
+            </div>
           </div>
 
           {/* Feature row */}
