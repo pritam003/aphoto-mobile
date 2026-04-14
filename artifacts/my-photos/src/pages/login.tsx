@@ -84,17 +84,16 @@ const PARTICLES = EMOJIS.map((em, i) => ({
 }));
 
 // Per-particle keyframes:
-// • Travel at ~full size (scale 1.0) for most of the journey so the emoji is visible
-// • Rapidly balloon in the last 20% to simulate a burst at the top
+// • Travel at scale(1.0) for 88% of the journey — clearly visible the whole way up
+// • Only burst in the final 12% when close to the top edge
 const PARTICLE_CSS = PARTICLES.map(({ id, eyVh, sxPx }) => `
   @keyframes br${id} {
-    0%   { opacity:0;   transform:translateY(0)                   scale(0.3); }
-    7%   { opacity:0.9; transform:translateY(${+(eyVh*0.06).toFixed(1)}vh)  scale(0.9); }
-    70%  { opacity:0.9; transform:translateY(${+(eyVh*0.70).toFixed(1)}vh)  scale(1.0); }
-    82%  { opacity:0.8; transform:translateY(${+(eyVh*0.82).toFixed(1)}vh)  scale(1.7); }
-    91%  { opacity:0.4; transform:translateY(${+(eyVh*0.91).toFixed(1)}vh)  scale(3.0); }
-    96%  { opacity:0.1; transform:translateY(${+(eyVh*0.96).toFixed(1)}vh)  scale(4.2); }
-    100% { opacity:0;   transform:translateY(${eyVh}vh)             scale(4.8); }
+    0%   { opacity:0;   transform:translateY(0)                   scale(0.4); }
+    8%   { opacity:0.9; transform:translateY(${+(eyVh*0.06).toFixed(1)}vh)  scale(1.0); }
+    88%  { opacity:0.9; transform:translateY(${+(eyVh*0.88).toFixed(1)}vh)  scale(1.0); }
+    93%  { opacity:0.6; transform:translateY(${+(eyVh*0.93).toFixed(1)}vh)  scale(2.2); }
+    97%  { opacity:0.15;transform:translateY(${+(eyVh*0.97).toFixed(1)}vh)  scale(3.8); }
+    100% { opacity:0;   transform:translateY(${eyVh}vh)             scale(5.0); }
   }
   @keyframes bd${id} {
     0%,100% { transform:translateX(0); }
