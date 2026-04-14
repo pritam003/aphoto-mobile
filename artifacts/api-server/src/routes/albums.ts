@@ -38,7 +38,7 @@ router.get("/albums", async (req: any, res) => {
         const activePhotos = await db
           .select()
           .from(photosTable)
-          .where(and(eq(photosTable.trashed, false)))
+          .where(and(eq(photosTable.trashed, false), eq(photosTable.hidden, false)))
           .then((rows: any[]) => rows.filter((p) => photoIds.includes(p.id)));
 
         photoCount = activePhotos.length;
@@ -141,7 +141,7 @@ router.get("/albums/:id/photos", async (req: any, res) => {
 
   const photos = await Promise.all(
     photoIds.map(async (photoId: string) => {
-      const [photo] = await db.select().from(photosTable).where(and(eq(photosTable.id, photoId), eq(photosTable.trashed, false)));
+      const [photo] = await db.select().from(photosTable).where(and(eq(photosTable.id, photoId), eq(photosTable.trashed, false), eq(photosTable.hidden, false)));
       if (!photo) return null;
       const url = generateSasUrl(photo.blobName, 3600);
       return { ...photo, url, thumbnailUrl: url, albums: [req.params.id] };
