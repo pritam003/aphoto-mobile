@@ -1,5 +1,6 @@
 import { BlobServiceClient, generateBlobSASQueryParameters, BlobSASPermissions, UserDelegationKey } from "@azure/storage-blob";
 import { DefaultAzureCredential, ManagedIdentityCredential } from "@azure/identity";
+import { Readable } from "stream";
 
 const accountName = process.env.AZURE_STORAGE_ACCOUNT_NAME!;
 const containerName = process.env.AZURE_STORAGE_CONTAINER_NAME!;
@@ -67,6 +68,25 @@ export async function uploadBlob(
     },
   });
   return blobName;
+}
+
+/**
+ * Stream-upload a blob directly from a Node.js Readable — no full-file buffer needed.
+ * Uses 4 MB blocks with up to 4 concurrent block uploads.
+ */
+export async function uploadBlobFromStream(
+  blobName: string,
+  stream: Readable,
+  contentType: string,
+): Promise<void> {
+  const containerClient = getContainerClient();
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+  await blockBlobClient.uploadStream(stream, 4 * 1024 * 1024, 4, {
+    blobHTTPHeaders: {
+      blobContentType: contentType,
+      blobCacheControl: "public, max-age=31536000, immutable",
+    },
+  });
 }
 
 export async function deleteBlob(blobName: string): Promise<void> {

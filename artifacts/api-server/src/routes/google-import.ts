@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { randomUUID } from "crypto";
+import { Readable } from "stream";
 import { db, photosTable, albumsTable, albumPhotosTable } from "@workspace/db";
-import { uploadBlob } from "../lib/azure-storage.js";
+import { uploadBlobFromStream } from "../lib/azure-storage.js";
 import { logger } from "../lib/logger.js";
 
 const router = Router();
@@ -186,54 +187,6 @@ async function runImport(importId: string, sessionId: string, userId: string, ac
   }
 }
 
-/** Download a single URL with a 60s timeout, retrying up to maxRetries times on transient errors.
- *  Refreshes the access token on 401 using the refresh token if available. */
-async function fetchWithRetry(
-  url: string,
-  tokenHolder: { accessToken: string },
-  refreshToken: string | undefined,
-  maxRetries = 3,
-): Promise<Buffer> {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60_000); // 60s per photo
-    try {
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${tokenHolder.accessToken}` },
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
-
-      if (res.status === 401 && refreshToken && attempt < maxRetries) {
-        // Access token expired — refresh and retry immediately
-        const newToken = await refreshAccessToken(refreshToken);
-        if (newToken) { tokenHolder.accessToken = newToken; }
-        continue;
-      }
-      if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
-        // Rate limited or server error — back off then retry
-        if (attempt < maxRetries) {
-          await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
-          continue;
-        }
-      }
-      if (!res.ok) throw new Error(`Download failed: ${res.status}`);
-      return Buffer.from(await res.arrayBuffer());
-    } catch (err: any) {
-      clearTimeout(timeout);
-      const isAbort = err?.name === "AbortError";
-      const isTransient = isAbort || String(err).includes("ECONNRESET") || String(err).includes("ETIMEDOUT") || String(err).includes("fetch failed");
-      if (isTransient && attempt < maxRetries) {
-        logger.warn({ attempt, url: url.slice(0, 60) }, isAbort ? "Download timed out, retrying" : "Transient error, retrying");
-        await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw new Error("Download failed after retries");
-}
-
 /** Refresh an expired Google access token. Returns the new token or undefined on failure. */
 async function refreshAccessToken(refreshToken: string): Promise<string | undefined> {
   try {
@@ -288,15 +241,61 @@ async function processItems(
       const baseUrl: string = item.mediaFile?.baseUrl || "";
       const downloadUrl = isVideo ? `${baseUrl}=dv` : `${baseUrl}=d`;
 
-      const buffer = await fetchWithRetry(downloadUrl, tokenHolder, refreshToken);
+      // Stream directly from Google to Azure — no full-file buffer in RAM.
+      // Retry up to 3 times on transient errors (401 token refresh, 429, 5xx, timeouts).
+      const MAX_RETRIES = 3;
+      let size = 0;
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        const controller = new AbortController();
+        const timeoutHandle = setTimeout(() => controller.abort(), 120_000); // 2 min per file
+        try {
+          const res = await fetch(downloadUrl, {
+            headers: { Authorization: `Bearer ${tokenHolder.accessToken}` },
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutHandle);
+
+          if (res.status === 401 && refreshToken && attempt < MAX_RETRIES) {
+            const newToken = await refreshAccessToken(refreshToken);
+            if (newToken) tokenHolder.accessToken = newToken;
+            continue;
+          }
+          if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
+            await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
+            continue;
+          }
+          if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+
+          size = parseInt(res.headers.get("content-length") ?? "0", 10);
+
+          const blobName_ = `${userId}/${albumId ?? "library"}/${randomUUID()}${ext}`;
+          // Pipe the web ReadableStream → Node Readable → Azure Blob (4 MB blocks, 4 parallel)
+          await uploadBlobFromStream(blobName_, Readable.fromWeb(res.body as any), mimeType);
+
+          // Keep blobName visible after the loop
+          (item as any).__blobName = blobName_;
+          break;
+        } catch (err: any) {
+          clearTimeout(timeoutHandle);
+          const isTransient =
+            err?.name === "AbortError" ||
+            String(err).includes("ECONNRESET") ||
+            String(err).includes("ETIMEDOUT") ||
+            String(err).includes("fetch failed");
+          if (isTransient && attempt < MAX_RETRIES) {
+            logger.warn({ attempt, itemId }, "Transient error streaming photo, retrying");
+            await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
+            continue;
+          }
+          throw err;
+        }
+      }
 
       // Keep resume store's accessToken in sync in case it was refreshed
       const resume = resumeDataStore.get(importId);
       if (resume) resume.accessToken = tokenHolder.accessToken;
 
-      const blobName = `${userId}/${albumId ?? "library"}/${randomUUID()}${ext}`;
-      await uploadBlob(blobName, buffer, mimeType);
-
+      const blobName = (item as any).__blobName as string;
       const meta = item.mediaFile?.mediaFileMetadata;
       const [photo] = await db
         .insert(photosTable)
@@ -305,7 +304,7 @@ async function processItems(
           filename: item.mediaFile?.filename || `photo${ext}`,
           blobName,
           contentType: mimeType,
-          size: buffer.byteLength,
+          size,
           width: meta?.width ? Number(meta.width) : null,
           height: meta?.height ? Number(meta.height) : null,
           takenAt: item.createTime ? new Date(item.createTime) : null,
