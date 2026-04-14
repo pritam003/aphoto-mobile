@@ -2,7 +2,7 @@ import { X, Loader2, CheckCircle, AlertCircle } from "lucide-react";
 import { useImport } from "@/lib/importContext";
 
 export default function ImportProgressBanner() {
-  const { importId, importStatus, clearImport } = useImport();
+  const { importId, importStatus, clearImport, cancelImport } = useImport();
   if (!importId || !importStatus) return null;
 
   const { status, albumName, imported, total, errors } = importStatus;
@@ -51,6 +51,15 @@ export default function ImportProgressBanner() {
           )}
         </div>
 
+        {isActive && (
+          <button
+            onClick={() => cancelImport()}
+            className="p-1 rounded-lg hover:bg-muted text-muted-foreground hover:text-destructive transition-colors shrink-0"
+            title="Stop import"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
         {(isDone || isError) && (
           <button onClick={clearImport} className="p-1 rounded-lg hover:bg-muted text-muted-foreground transition-colors shrink-0">
             <X className="w-4 h-4" />

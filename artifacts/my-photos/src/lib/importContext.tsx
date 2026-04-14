@@ -17,6 +17,7 @@ interface ImportCtx {
   activeImportAlbumId: string | null;
   startImport: (id: string) => void;
   clearImport: () => void;
+  cancelImport: () => Promise<void>;
 }
 
 const ImportContext = createContext<ImportCtx>({
@@ -25,6 +26,7 @@ const ImportContext = createContext<ImportCtx>({
   activeImportAlbumId: null,
   startImport: () => {},
   clearImport: () => {},
+  cancelImport: async () => {},
 });
 
 export function useImport() { return useContext(ImportContext); }
@@ -49,6 +51,14 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
     setImportStatus(null);
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
   }, []);
+
+  const cancelImport = useCallback(async () => {
+    if (!importId) return;
+    try {
+      await fetch(`${API_BASE}/google/import/${importId}`, { method: "DELETE", credentials: "include" });
+    } catch { /* ignore */ }
+    clearImport();
+  }, [importId, clearImport]);
 
   // Poll when we have an importId
   useEffect(() => {
@@ -96,6 +106,7 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
       activeImportAlbumId: importStatus?.albumId ?? null,
       startImport,
       clearImport,
+      cancelImport,
     }}>
       {children}
     </ImportContext.Provider>

@@ -36,6 +36,7 @@ interface ImportStatus {
   pickerUri?: string;
 }
 const importStatuses = new Map<string, ImportStatus>();
+const cancelledImports = new Set<string>();
 
 function requireAuth(req: any, res: any, next: any) {
   const user = (req as Record<string, unknown>).user as Record<string, string> | undefined;
@@ -53,6 +54,12 @@ async function runImport(importId: string, sessionId: string, userId: string, ac
     const deadline = Date.now() + 60 * 60 * 1000; // 1 hour
 
     while (Date.now() < deadline) {
+      if (cancelledImports.has(importId)) {
+        cancelledImports.delete(importId);
+        status.status = "error";
+        status.message = "Cancelled by user";
+        return;
+      }
       const sessRes = await fetch(`https://photospicker.googleapis.com/v1/sessions/${sessionId}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -107,6 +114,12 @@ async function runImport(importId: string, sessionId: string, userId: string, ac
     }
 
     for (const item of items) {
+      if (cancelledImports.has(importId)) {
+        cancelledImports.delete(importId);
+        status.status = "error";
+        status.message = "Cancelled by user";
+        return;
+      }
       try {
         const mimeType: string = item.mediaFile?.mimeType || "image/jpeg";
         const isVideo = mimeType.startsWith("video/");
@@ -274,6 +287,19 @@ router.get("/google/import/:id", requireAuth, (req, res) => {
   const status = importStatuses.get(req.params.id);
   if (!status) return res.status(404).json({ error: "Import not found" });
   res.json(status);
+});
+
+// DELETE /api/google/import/:id — cancel an in-progress import
+router.delete("/google/import/:id", requireAuth, (req, res) => {
+  const status = importStatuses.get(req.params.id);
+  if (!status) return res.status(404).json({ error: "Import not found" });
+  if (status.status === "done" || status.status === "error") {
+    return res.json({ cancelled: false, message: "Import already finished" });
+  }
+  cancelledImports.add(req.params.id);
+  status.status = "error";
+  status.message = "Cancelled by user";
+  res.json({ cancelled: true });
 });
 
 export default router;

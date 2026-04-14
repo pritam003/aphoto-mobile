@@ -6,6 +6,7 @@ import { useGetAlbum, useListAlbumPhotos, useUpdateAlbum, useListPhotos, useAddP
 import { useQueryClient } from "@tanstack/react-query";
 import PhotoGrid from "@/components/PhotoGrid";
 import UploadModal from "@/components/UploadModal";
+import { useImport } from "@/lib/importContext";
 
 export default function AlbumDetailPage() {
   const [, params] = useRoute("/albums/:id");
@@ -19,11 +20,17 @@ export default function AlbumDetailPage() {
   const [sortOrder, setSortOrder] = useState<"taken" | "uploaded">("taken");
   const queryClient = useQueryClient();
 
+  const { activeImportAlbumId } = useImport();
+
   const { data: album } = useGetAlbum(id, {
     query: { queryKey: ["album", id], enabled: !!id },
   });
   const { data, isLoading } = useListAlbumPhotos(id, {
-    query: { queryKey: getListAlbumPhotosQueryKey(id), enabled: !!id },
+    query: {
+      queryKey: getListAlbumPhotosQueryKey(id),
+      enabled: !!id,
+      refetchInterval: activeImportAlbumId === id ? 3000 : false,
+    },
   });
   const { data: allPhotosData } = useListPhotos({}, {
     query: { queryKey: ["all-photos-for-picker"], enabled: showPicker },
