@@ -67,6 +67,12 @@ const ANIM_CSS = `
     46%  { transform: scale(1.0)  rotate(0deg); }
     100% { transform: scale(1)    rotate(0deg); }
   }
+  @keyframes float-up {
+    0%   { opacity:0;   transform:translateY(0px); }
+    8%   { opacity:0.75; }
+    90%  { opacity:0.75; transform:translateY(-105vh); }
+    100% { opacity:0;   transform:translateY(-115vh); }
+  }
 `;
 
 /* ── Emoji particle config ─────────────────────────────────────────────── */
@@ -75,33 +81,10 @@ const PARTICLES = EMOJIS.map((em, i) => ({
   id: i,
   emoji: em,
   left: `${(i * 137.508 + 5) % 90}%`,
-  size: 36 + ((i * 11) % 20),        // 36–56px — large enough to see clearly
-  delay: (i * 1.4) % 12,
-  dur:   8 + (i * 1.1) % 6,          // 8–13s — short enough to feel lively
-  driftDur: 4 + (i * 0.8) % 3,
-  eyVh: -(100 + (i * 5) % 12),       // -100 to -111vh — enough to reach/exceed viewport top
-  sxPx: -30 + (i * 12) % 60,
+  size: 32 + ((i * 9) % 18),
+  delay: (i * 1.3) % 14,
+  dur:   10 + (i * 0.9) % 6,
 }));
-
-// Per-particle keyframes:
-// • Travel at scale(1.0) for 88% of the journey — clearly visible the whole way up
-// • Only burst in the final 12% when close to the top edge
-const PARTICLE_CSS = PARTICLES.map(({ id, eyVh, sxPx }) => `
-  @keyframes br${id} {
-    0%   { opacity:0;   transform:translateY(0)                   scale(0.4); }
-    8%   { opacity:0.9; transform:translateY(${+(eyVh*0.06).toFixed(1)}vh)  scale(1.0); }
-    88%  { opacity:0.9; transform:translateY(${+(eyVh*0.88).toFixed(1)}vh)  scale(1.0); }
-    93%  { opacity:0.6; transform:translateY(${+(eyVh*0.93).toFixed(1)}vh)  scale(2.2); }
-    97%  { opacity:0.15;transform:translateY(${+(eyVh*0.97).toFixed(1)}vh)  scale(3.8); }
-    100% { opacity:0;   transform:translateY(${eyVh}vh)             scale(5.0); }
-  }
-  @keyframes bd${id} {
-    0%,100% { transform:translateX(0); }
-    35%     { transform:translateX(${+(sxPx*0.5).toFixed(1)}px); }
-    65%     { transform:translateX(${sxPx}px); }
-    82%     { transform:translateX(${+(sxPx*0.4).toFixed(1)}px); }
-  }
-`).join('');
 
 const QUOTES = [
   { text: "Life is a collection of moments. Make them beautiful.", author: "— Unknown" },
@@ -214,7 +197,7 @@ export default function LoginPage() {
   /* ── Shared animated background ─────────────────────────────────────── */
   const Bg = () => (
     <>
-      <style>{ANIM_CSS + PARTICLE_CSS}</style>
+      <style>{ANIM_CSS}</style>
       {/* Light pastel base — lavender → sky → blush */}
       <div className="absolute inset-0"
         style={{ background: "linear-gradient(145deg,#ede9fe 0%,#e0f2fe 40%,#fce7f3 70%,#f0fdf4 100%)" }} />
@@ -235,26 +218,21 @@ export default function LoginPage() {
             animation:"glow-pulse 6s ease-in-out infinite",animationDelay:"1.5s" }} />
       </div>
 
-      {/* Rising emoji particles — fixed so parent overflow:hidden can't clip them */}
-      <div style={{ position:"fixed", inset:0, pointerEvents:"none", overflow:"visible", zIndex:0 }}>
-        {PARTICLES.map(p => (
-          <div key={p.id}
-            style={{
-              position:"absolute",
-              bottom:"-60px",
-              left: p.left,
-              fontSize: p.size,
-              lineHeight:1,
-              opacity:0,
-              animation: `br${p.id} ${p.dur}s linear ${p.delay}s infinite`,
-            }}>
-            <span style={{ display:"inline-block",
-              animation:`bd${p.id} ${p.driftDur}s ease-in-out infinite` }}>
-              {p.emoji}
-            </span>
-          </div>
-        ))}
-      </div>
+      {/* Rising emoji particles */}
+      {PARTICLES.map(p => (
+        <div key={p.id} style={{
+          position:"fixed",
+          bottom:"-60px",
+          left: p.left,
+          fontSize: p.size,
+          lineHeight:1,
+          pointerEvents:"none",
+          zIndex:1,
+          animation: `float-up ${p.dur}s ease-in-out ${p.delay}s infinite`,
+        }}>
+          {p.emoji}
+        </div>
+      ))}
 
       {/* Fine grid overlay */}
       <div className="absolute inset-0 opacity-[0.12] pointer-events-none"
