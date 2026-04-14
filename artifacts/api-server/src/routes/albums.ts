@@ -14,12 +14,33 @@ function requireAuth(req: any, res: any, next: any) {
 
 router.use(requireAuth);
 
+router.get("/albums/trashed", async (req: any, res) => {
+  const userId = req.currentUser.id;
+  const albums = await db
+    .select()
+    .from(albumsTable)
+    .where(and(eq(albumsTable.userId, userId), eq(albumsTable.trashed, true)))
+    .orderBy(desc(albumsTable.trashedAt));
+  res.json(albums);
+});
+
+router.post("/albums/:id/restore", async (req: any, res) => {
+  const userId = req.currentUser.id;
+  const [album] = await db
+    .update(albumsTable)
+    .set({ trashed: false, trashedAt: null })
+    .where(and(eq(albumsTable.id, req.params.id), eq(albumsTable.userId, userId)))
+    .returning();
+  if (!album) return res.status(404).json({ error: "Not found" });
+  res.json(album);
+});
+
 router.get("/albums", async (req: any, res) => {
   const userId = req.currentUser.id;
   const albums = await db
     .select()
     .from(albumsTable)
-    .where(eq(albumsTable.userId, userId))
+    .where(and(eq(albumsTable.userId, userId), eq(albumsTable.trashed, false)))
     .orderBy(desc(albumsTable.createdAt));
 
   const albumsWithCounts = await Promise.all(
@@ -115,9 +136,15 @@ router.patch("/albums/:id", async (req: any, res) => {
 
 router.delete("/albums/:id", async (req: any, res) => {
   const userId = req.currentUser.id;
-  await db
-    .delete(albumsTable)
-    .where(and(eq(albumsTable.id, req.params.id), eq(albumsTable.userId, userId)));
+  const { permanent } = req.query as Record<string, string>;
+  if (permanent === "true") {
+    await db.delete(albumsTable).where(and(eq(albumsTable.id, req.params.id), eq(albumsTable.userId, userId)));
+  } else {
+    await db
+      .update(albumsTable)
+      .set({ trashed: true, trashedAt: new Date() })
+      .where(and(eq(albumsTable.id, req.params.id), eq(albumsTable.userId, userId)));
+  }
   res.status(204).send();
 });
 

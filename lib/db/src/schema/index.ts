@@ -31,6 +31,8 @@ export const albumsTable = pgTable("albums", {
   name: text("name").notNull(),
   description: text("description"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  trashed: boolean("trashed").default(false).notNull(),
+  trashedAt: timestamp("trashed_at"),
 });
 
 export const albumPhotosTable = pgTable("album_photos", {

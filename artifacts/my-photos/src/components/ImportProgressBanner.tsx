@@ -1,0 +1,62 @@
+import { X, Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import { useImport } from "@/lib/importContext";
+
+export default function ImportProgressBanner() {
+  const { importId, importStatus, clearImport } = useImport();
+  if (!importId || !importStatus) return null;
+
+  const { status, albumName, imported, total, errors } = importStatus;
+  const pct = total > 0 ? Math.round(((imported + errors) / total) * 100) : 0;
+  const isDone = status === "done";
+  const isError = status === "error";
+  const isActive = status === "importing" || status === "picking";
+
+  return (
+    <div className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[min(96vw,420px)] rounded-2xl border shadow-2xl overflow-hidden transition-all
+      ${isDone ? "border-green-500/30 bg-green-50 dark:bg-green-950/40" : isError ? "border-destructive/30 bg-destructive/5" : "border-border bg-card"}`}>
+      {/* Progress bar */}
+      {isActive && total > 0 && (
+        <div className="h-1 bg-muted">
+          <div
+            className="h-1 bg-primary transition-all duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+      {isDone && <div className="h-1 bg-green-500" />}
+
+      <div className="flex items-center gap-3 px-4 py-3">
+        {isActive && <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />}
+        {isDone && <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />}
+        {isError && <AlertCircle className="w-4 h-4 text-destructive shrink-0" />}
+
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-foreground truncate">
+            {isDone
+              ? `Import complete — ${imported} photo${imported !== 1 ? "s" : ""} added${errors ? `, ${errors} skipped` : ""}`
+              : isError
+              ? "Import failed"
+              : status === "picking"
+              ? "Waiting for Google Photos picker…"
+              : `Importing from Google Photos`}
+          </p>
+          {isActive && (
+            <p className="text-xs text-muted-foreground">
+              {albumName && <span className="font-medium">{albumName}</span>}
+              {albumName && total > 0 && " · "}
+              {total > 0
+                ? `${imported} / ${total} imported`
+                : "Starting…"}
+            </p>
+          )}
+        </div>
+
+        {(isDone || isError) && (
+          <button onClick={clearImport} className="p-1 rounded-lg hover:bg-muted text-muted-foreground transition-colors shrink-0">
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}

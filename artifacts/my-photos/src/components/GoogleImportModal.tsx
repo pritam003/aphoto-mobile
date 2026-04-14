@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { X, CheckCircle, AlertCircle, Loader2, FolderDown, ExternalLink, FolderInput, ChevronDown, ChevronUp } from "lucide-react";
 import { useLocation } from "wouter";
 import { API_BASE } from "@/lib/api";
+import { useImport } from "@/lib/importContext";
 
 interface GoogleImportModalProps {
   onClose: () => void;
@@ -27,6 +28,7 @@ interface ThumbPhoto { id: string; thumbnailUrl: string; }
 
 export default function GoogleImportModal({ onClose, activeImportId, targetAlbumId, albumDisplayName, allowCreateAlbum, onDone }: GoogleImportModalProps) {
   const [, navigate] = useLocation();
+  const { startImport, clearImport } = useImport();
   const [albumName, setAlbumName] = useState("");
   const [connectError, setConnectError] = useState("");
   const [importId, setImportId]     = useState<string | null>(activeImportId ?? null);
@@ -39,14 +41,20 @@ export default function GoogleImportModal({ onClose, activeImportId, targetAlbum
   const thumbPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doneFiredRef = useRef(false);
 
+  // Register importId with global context so banner works across pages
+  useEffect(() => {
+    if (importId) startImport(importId);
+  }, [importId, startImport]);
+
   // Fire onDone once when status transitions to "done", then auto-close after 2s
   useEffect(() => {
     if (importStatus?.status === "done" && !doneFiredRef.current) {
       doneFiredRef.current = true;
       onDone?.(importStatus.albumId);
+      clearImport();
       setTimeout(() => onClose(), 2000);
     }
-  }, [importStatus?.status, importStatus?.albumId, onDone, onClose]);
+  }, [importStatus?.status, importStatus?.albumId, onDone, onClose, clearImport]);
 
   // Phase A: poll for importId by state (OAuth tab open)
   useEffect(() => {
@@ -56,7 +64,7 @@ export default function GoogleImportModal({ onClose, activeImportId, targetAlbum
         const res = await fetch(`${API_BASE}/google/import-by-state/${pendingState}`, { credentials: "include" });
         if (!res.ok) return;
         const data = await res.json() as { importId?: string };
-        if (data.importId) { setImportId(data.importId); clearInterval(pollRef.current!); pollRef.current = null; }
+        if (data.importId) { setImportId(data.importId); startImport(data.importId); clearInterval(pollRef.current!); pollRef.current = null; }
       } catch { /* keep polling */ }
     };
     pollRef.current = setInterval(poll, 2000);

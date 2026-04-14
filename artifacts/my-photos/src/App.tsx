@@ -13,6 +13,8 @@ import LoginPage from "@/pages/login";
 import SharePage from "@/pages/share";
 import NotFound from "@/pages/not-found";
 import { useAuth } from "@/hooks/useAuth";
+import { ImportProvider } from "@/lib/importContext";
+import ImportProgressBanner from "@/components/ImportProgressBanner";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -78,6 +80,7 @@ function AppLayout() {
         </Switch>
       </main>
       {showUpload && <UploadModal onClose={() => setShowUpload(false)} />}
+      <ImportProgressBanner />
     </div>
   );
 }
@@ -100,7 +103,9 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-        <Router />
+        <ImportProvider>
+          <Router />
+        </ImportProvider>
       </WouterRouter>
     </QueryClientProvider>
   );
