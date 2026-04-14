@@ -34,9 +34,22 @@ interface ImportStatus {
   errors: number;
   message?: string;
   pickerUri?: string;
+  /** true when the import errored mid-way and can be resumed */
+  resumable?: boolean;
 }
 const importStatuses = new Map<string, ImportStatus>();
 const cancelledImports = new Set<string>();
+
+// Resume data stored per importId so the user can restart from where it failed
+interface ResumeData {
+  items: any[];
+  processedIds: Set<string>;
+  accessToken: string;
+  userId: string;
+  albumId?: string;
+  noAlbum?: boolean;
+}
+const resumeDataStore = new Map<string, ResumeData>();
 
 function requireAuth(req: any, res: any, next: any) {
   const user = (req as Record<string, unknown>).user as Record<string, string> | undefined;
@@ -113,70 +126,98 @@ async function runImport(importId: string, sessionId: string, userId: string, ac
       status.albumId = albumId;
     }
 
-    for (const item of items) {
-      if (cancelledImports.has(importId)) {
-        cancelledImports.delete(importId);
-        status.status = "error";
-        status.message = "Cancelled by user";
-        return;
-      }
-      try {
-        const mimeType: string = item.mediaFile?.mimeType || "image/jpeg";
-        const isVideo = mimeType.startsWith("video/");
-        const ext = isVideo ? ".mp4" : ".jpg";
-        const baseUrl: string = item.mediaFile?.baseUrl || "";
-        // Picker API baseUrls require the OAuth token; =d downloads photo with Exif, =dv downloads video
-        const downloadUrl = isVideo ? `${baseUrl}=dv` : `${baseUrl}=d`;
-        const photoRes = await fetch(downloadUrl, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (!photoRes.ok) throw new Error(`Download failed: ${photoRes.status} ${await photoRes.text()}`);
+    // Save resume data so we can restart from where it fails
+    const processedIds = new Set<string>();
+    resumeDataStore.set(importId, { items, processedIds, accessToken, userId, albumId, noAlbum });
 
-        const buffer = Buffer.from(await photoRes.arrayBuffer());
-        const blobName = `${userId}/${albumId ?? "library"}/${randomUUID()}${ext}`;
-        await uploadBlob(blobName, buffer, mimeType);
+    await processItems(importId, items, processedIds, status, accessToken, userId, albumId);
 
-        const meta = item.mediaFile?.mediaFileMetadata;
-        const [photo] = await db
-          .insert(photosTable)
-          .values({
-            userId,
-            filename: item.mediaFile?.filename || `photo${ext}`,
-            blobName,
-            contentType: mimeType,
-            size: buffer.byteLength,
-            width: meta?.width ? Number(meta.width) : null,
-            height: meta?.height ? Number(meta.height) : null,
-            takenAt: item.createTime ? new Date(item.createTime) : null,
-          })
-          .returning();
-
-        if (albumId) {
-          await db
-            .insert(albumPhotosTable)
-            .values({ albumId, photoId: photo.id })
-            .onConflictDoNothing();
-        }
-
-        status.imported++;
-      } catch (err: any) {
-        logger.error({ err: String(err), itemId: item.id }, "Failed to import photo");
-        status.errors++;
-      }
+    if (status.status !== "error") {
+      status.status = "done";
+      resumeDataStore.delete(importId);
+      // Clean up picker session
+      await fetch(`https://photospicker.googleapis.com/v1/sessions/${sessionId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }).catch(() => {});
     }
-
-    status.status = "done";
-
-    // Clean up picker session
-    await fetch(`https://photospicker.googleapis.com/v1/sessions/${sessionId}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }).catch(() => {});
 
   } catch (err: any) {
     status.status = "error";
     status.message = String(err?.message ?? err);
+    status.resumable = resumeDataStore.has(importId);
     logger.error({ err: String(err) }, "Google Photos import failed");
+  }
+}
+
+/** Process a list of items, skipping already-processed IDs. Shared by initial run and resume. */
+async function processItems(
+  importId: string,
+  items: any[],
+  processedIds: Set<string>,
+  status: ImportStatus,
+  accessToken: string,
+  userId: string,
+  albumId: string | undefined,
+) {
+  for (const item of items) {
+    const itemId: string = item.id || item.mediaFile?.filename || "";
+    if (processedIds.has(itemId)) continue; // already done (resume skip)
+
+    if (cancelledImports.has(importId)) {
+      cancelledImports.delete(importId);
+      status.status = "error";
+      status.message = "Cancelled by user";
+      status.resumable = resumeDataStore.has(importId);
+      return;
+    }
+    try {
+      const mimeType: string = item.mediaFile?.mimeType || "image/jpeg";
+      const isVideo = mimeType.startsWith("video/");
+      const ext = isVideo ? ".mp4" : ".jpg";
+      const baseUrl: string = item.mediaFile?.baseUrl || "";
+      const downloadUrl = isVideo ? `${baseUrl}=dv` : `${baseUrl}=d`;
+      const photoRes = await fetch(downloadUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!photoRes.ok) throw new Error(`Download failed: ${photoRes.status} ${await photoRes.text()}`);
+
+      const buffer = Buffer.from(await photoRes.arrayBuffer());
+      const blobName = `${userId}/${albumId ?? "library"}/${randomUUID()}${ext}`;
+      await uploadBlob(blobName, buffer, mimeType);
+
+      const meta = item.mediaFile?.mediaFileMetadata;
+      const [photo] = await db
+        .insert(photosTable)
+        .values({
+          userId,
+          filename: item.mediaFile?.filename || `photo${ext}`,
+          blobName,
+          contentType: mimeType,
+          size: buffer.byteLength,
+          width: meta?.width ? Number(meta.width) : null,
+          height: meta?.height ? Number(meta.height) : null,
+          takenAt: item.createTime ? new Date(item.createTime) : null,
+        })
+        .returning();
+
+      if (albumId) {
+        await db
+          .insert(albumPhotosTable)
+          .values({ albumId, photoId: photo.id })
+          .onConflictDoNothing();
+      }
+
+      processedIds.add(itemId);
+      status.imported++;
+    } catch (err: any) {
+      logger.error({ err: String(err), itemId }, "Failed to import photo");
+      status.errors++;
+      // If Azure storage or DB fails consistently, bubble up to mark as resumable
+      if (String(err).includes("ECONNREFUSED") || String(err).includes("ETIMEDOUT")) {
+        throw err; // stop the loop — outer catch will mark resumable
+      }
+    }
   }
 }
 
@@ -300,6 +341,49 @@ router.delete("/google/import/:id", requireAuth, (req, res) => {
   status.status = "error";
   status.message = "Cancelled by user";
   res.json({ cancelled: true });
+});
+
+// POST /api/google/import/:id/resume — restart from where it left off
+router.post("/google/import/:id/resume", requireAuth, async (req: any, res) => {
+  const importId = req.params.id;
+  const status = importStatuses.get(importId);
+  const resume = resumeDataStore.get(importId);
+
+  if (!status) return res.status(404).json({ error: "Import not found" });
+  if (!resume) return res.status(409).json({ error: "No resume data available — please start a new import" });
+  if (status.status === "importing") return res.status(409).json({ error: "Import is already running" });
+  if (resume.userId !== req.currentUser.id) return res.status(403).json({ error: "Forbidden" });
+
+  // Reset to importing state (keep imported/errors counts so progress is accurate)
+  status.status = "importing";
+  status.message = undefined;
+  status.resumable = false;
+
+  const remaining = resume.items.filter(item => {
+    const id: string = item.id || item.mediaFile?.filename || "";
+    return !resume.processedIds.has(id);
+  });
+
+  const skipped = resume.items.length - remaining.length;
+  logger.info({ importId, total: resume.items.length, skipped, remaining: remaining.length }, "Resuming import");
+
+  res.json({ resumed: true, remaining: remaining.length, skipped });
+
+  // Run async
+  (async () => {
+    try {
+      await processItems(importId, remaining, resume.processedIds, status, resume.accessToken, resume.userId, resume.albumId);
+      if (status.status !== "error") {
+        status.status = "done";
+        resumeDataStore.delete(importId);
+      }
+    } catch (err: any) {
+      status.status = "error";
+      status.message = String(err?.message ?? err);
+      status.resumable = resumeDataStore.has(importId);
+      logger.error({ err: String(err) }, "Google Photos resume failed");
+    }
+  })().catch(console.error);
 });
 
 export default router;

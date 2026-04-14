@@ -9,6 +9,7 @@ interface ImportStatus {
   imported: number;
   errors: number;
   message?: string;
+  resumable?: boolean;
 }
 
 interface ImportCtx {
@@ -18,6 +19,7 @@ interface ImportCtx {
   startImport: (id: string) => void;
   clearImport: () => void;
   cancelImport: () => Promise<void>;
+  resumeImport: () => Promise<void>;
 }
 
 const ImportContext = createContext<ImportCtx>({
@@ -27,6 +29,7 @@ const ImportContext = createContext<ImportCtx>({
   startImport: () => {},
   clearImport: () => {},
   cancelImport: async () => {},
+  resumeImport: async () => {},
 });
 
 export function useImport() { return useContext(ImportContext); }
@@ -58,6 +61,32 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
       await fetch(`${API_BASE}/google/import/${importId}`, { method: "DELETE", credentials: "include" });
     } catch { /* ignore */ }
     clearImport();
+  }, [importId, clearImport]);
+
+  const resumeImport = useCallback(async () => {
+    if (!importId) return;
+    try {
+      await fetch(`${API_BASE}/google/import/${importId}/resume`, { method: "POST", credentials: "include" });
+      // Re-start polling — status will move back to "importing"
+      setImportStatus(prev => prev ? { ...prev, status: "importing", resumable: false, message: undefined } : prev);
+      // Re-trigger the polling effect by briefly clearing then restoring importId
+      const id = importId;
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      const poll = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/google/import/${id}`, { credentials: "include" });
+          if (!res.ok) return;
+          const data = await res.json() as ImportStatus;
+          setImportStatus(data);
+          if (data.status === "done" || data.status === "error") {
+            clearInterval(pollRef.current!); pollRef.current = null;
+            if (data.status === "done") setTimeout(() => clearImport(), 3000);
+          }
+        } catch { /* keep polling */ }
+      };
+      poll();
+      pollRef.current = setInterval(poll, 2000);
+    } catch { /* ignore */ }
   }, [importId, clearImport]);
 
   // Poll when we have an importId
@@ -107,6 +136,7 @@ export function ImportProvider({ children }: { children: React.ReactNode }) {
       startImport,
       clearImport,
       cancelImport,
+      resumeImport,
     }}>
       {children}
     </ImportContext.Provider>
