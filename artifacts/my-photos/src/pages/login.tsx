@@ -5,16 +5,21 @@ import { API_BASE } from "@/lib/api";
 
 /* ── Keyframes ──────────────────────────────────────────────────────────── */
 const ANIM_CSS = `
-  @keyframes emoji-pop {
-    0%   { opacity:0; transform: translateY(0) scale(0.3) rotate(var(--er)); }
-    12%  { opacity:1; transform: translateY(calc(var(--ey) * 0.1)) scale(1.2) rotate(var(--er)); }
-    20%  { transform: translateY(calc(var(--ey) * 0.18)) scale(1) rotate(calc(var(--er) + 8deg)); }
-    80%  { opacity:0.7; }
-    100% { opacity:0; transform: translateY(var(--ey)) scale(0.5) rotate(calc(var(--er) + 30deg)); }
+  @keyframes bubble-rise {
+    0%   { opacity: 0;    transform: translateY(0) scale(0.08); }
+    6%   { opacity: 1;    transform: translateY(calc(var(--ey) * 0.05)) scale(0.32); }
+    50%  { opacity: 0.88; transform: translateY(calc(var(--ey) * 0.5))  scale(0.85); }
+    80%  { opacity: 0.72; transform: translateY(calc(var(--ey) * 0.8))  scale(1.45); }
+    91%  { opacity: 0.38; transform: translateY(calc(var(--ey) * 0.94)) scale(2.2); }
+    97%  { opacity: 0.08; transform: translateY(calc(var(--ey) * 0.99)) scale(2.9); }
+    100% { opacity: 0;    transform: translateY(var(--ey)) scale(3.1); }
   }
-  @keyframes emoji-sway {
-    0%,100% { transform: translateX(0); }
-    50%     { transform: translateX(var(--sx)); }
+  @keyframes bubble-drift {
+    0%   { transform: translateX(0); }
+    28%  { transform: translateX(calc(var(--sx) * 0.45)); }
+    55%  { transform: translateX(var(--sx)); }
+    78%  { transform: translateX(calc(var(--sx) * 0.3)); }
+    100% { transform: translateX(0); }
   }
   @keyframes card-enter {
     from { opacity:0; transform:translateY(40px) scale(0.93); }
@@ -70,13 +75,12 @@ const PARTICLES = EMOJIS.map((em, i) => ({
   id: i,
   emoji: em,
   left: `${(i * 137.508 + 5) % 94}%`,
-  size: 22 + ((i * 11) % 24),          // 22–46 px font size
+  size: 18 + ((i * 9) % 18),           // 18–36 px — starts small, grows 3× visually
   delay: `${(i * 1.35) % 11}s`,
-  dur: `${10 + (i * 1.7) % 9}s`,
-  swayDur: `${3 + (i * 0.6) % 4}s`,
-  ey: `-${85 + (i * 7) % 30}vh`,        // how far up it floats
-  er: `${-25 + (i * 13) % 50}deg`,
-  sx: `${-18 + (i * 8) % 36}px`,
+  dur: `${11 + (i * 1.7) % 8}s`,
+  driftDur: `${4 + (i * 0.7) % 4}s`,
+  ey: `-${88 + (i * 7) % 28}vh`,
+  sx: `${-22 + (i * 9) % 44}px`,
 }));
 
 const QUOTES = [
@@ -223,12 +227,11 @@ export default function LoginPage() {
               lineHeight:1,
               opacity:0,
               ["--ey" as string]: p.ey,
-              ["--er" as string]: p.er,
               ["--sx" as string]: p.sx,
-              animation: `emoji-pop ${p.dur} ease-in-out ${p.delay} infinite`,
+              animation: `bubble-rise ${p.dur} linear ${p.delay} infinite`,
             }}>
             <span style={{ display:"inline-block",
-              animation:`emoji-sway ${p.swayDur} ease-in-out infinite` }}>
+              animation:`bubble-drift ${p.driftDur} ease-in-out infinite` }}>
               {p.emoji}
             </span>
           </div>
