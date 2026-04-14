@@ -74,32 +74,33 @@ const EMOJIS = ["📸","🖼️","🌄","🤳","🗂️","📷","🌅","❤️",
 const PARTICLES = EMOJIS.map((em, i) => ({
   id: i,
   emoji: em,
-  left: `${(i * 137.508 + 5) % 94}%`,
-  size: 18 + ((i * 9) % 18),
-  delay: (i * 1.35) % 11,           // numeric seconds
-  dur:   11 + (i * 1.7) % 8,        // numeric seconds
-  driftDur: 4 + (i * 0.7) % 4,      // numeric seconds
-  eyVh: -(88 + (i * 7) % 28),       // negative number (vh)
-  sxPx: -22 + (i * 9) % 44,         // number (px)
+  left: `${(i * 137.508 + 5) % 90}%`,
+  size: 36 + ((i * 11) % 20),        // 36–56px — large enough to see clearly
+  delay: (i * 1.4) % 12,
+  dur:   8 + (i * 1.1) % 6,          // 8–13s — short enough to feel lively
+  driftDur: 4 + (i * 0.8) % 3,
+  eyVh: -(92 + (i * 5) % 16),        // -92 to -107vh
+  sxPx: -30 + (i * 12) % 60,
 }));
 
-// Per-particle keyframes with hardcoded values — CSS custom props inside
-// global @keyframes are unreliable across browsers.
+// Per-particle keyframes:
+// • Travel at ~full size (scale 1.0) for most of the journey so the emoji is visible
+// • Rapidly balloon in the last 20% to simulate a burst at the top
 const PARTICLE_CSS = PARTICLES.map(({ id, eyVh, sxPx }) => `
   @keyframes br${id} {
-    0%   { opacity:0;    transform:translateY(0)                  scale(0.08); }
-    6%   { opacity:1;    transform:translateY(${+(eyVh*0.05).toFixed(2)}vh) scale(0.32); }
-    50%  { opacity:0.88; transform:translateY(${+(eyVh*0.5).toFixed(2)}vh)  scale(0.85); }
-    80%  { opacity:0.72; transform:translateY(${+(eyVh*0.8).toFixed(2)}vh)  scale(1.45); }
-    91%  { opacity:0.38; transform:translateY(${+(eyVh*0.94).toFixed(2)}vh) scale(2.2); }
-    97%  { opacity:0.08; transform:translateY(${+(eyVh*0.99).toFixed(2)}vh) scale(2.9); }
-    100% { opacity:0;    transform:translateY(${eyVh}vh)            scale(3.1); }
+    0%   { opacity:0;   transform:translateY(0)                   scale(0.3); }
+    7%   { opacity:0.9; transform:translateY(${+(eyVh*0.06).toFixed(1)}vh)  scale(0.9); }
+    70%  { opacity:0.9; transform:translateY(${+(eyVh*0.70).toFixed(1)}vh)  scale(1.0); }
+    82%  { opacity:0.8; transform:translateY(${+(eyVh*0.82).toFixed(1)}vh)  scale(1.7); }
+    91%  { opacity:0.4; transform:translateY(${+(eyVh*0.91).toFixed(1)}vh)  scale(3.0); }
+    96%  { opacity:0.1; transform:translateY(${+(eyVh*0.96).toFixed(1)}vh)  scale(4.2); }
+    100% { opacity:0;   transform:translateY(${eyVh}vh)             scale(4.8); }
   }
   @keyframes bd${id} {
     0%,100% { transform:translateX(0); }
-    30%     { transform:translateX(${+(sxPx*0.45).toFixed(1)}px); }
-    60%     { transform:translateX(${sxPx}px); }
-    80%     { transform:translateX(${+(sxPx*0.3).toFixed(1)}px); }
+    35%     { transform:translateX(${+(sxPx*0.5).toFixed(1)}px); }
+    65%     { transform:translateX(${sxPx}px); }
+    82%     { transform:translateX(${+(sxPx*0.4).toFixed(1)}px); }
   }
 `).join('');
 
@@ -236,7 +237,7 @@ export default function LoginPage() {
       </div>
 
       {/* Rising emoji particles */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      <div className="absolute inset-0 pointer-events-none" style={{ overflow:"visible" }}>
         {PARTICLES.map(p => (
           <div key={p.id}
             style={{
