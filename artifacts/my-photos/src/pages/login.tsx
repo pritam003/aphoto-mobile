@@ -67,24 +67,7 @@ const ANIM_CSS = `
     46%  { transform: scale(1.0)  rotate(0deg); }
     100% { transform: scale(1)    rotate(0deg); }
   }
-  @keyframes float-up {
-    0%   { opacity:0;   transform:translateY(0px); }
-    8%   { opacity:0.75; }
-    90%  { opacity:0.75; transform:translateY(-105vh); }
-    100% { opacity:0;   transform:translateY(-115vh); }
-  }
 `;
-
-/* ── Emoji particle config ─────────────────────────────────────────────── */
-const EMOJIS = ["📸","🖼️","🌄","🤳","🗂️","📷","🌅","❤️","✨","🎞️","🌠","📸","🖼️","📷","🌄","✨","🗂️","🌅"];
-const PARTICLES = EMOJIS.map((em, i) => ({
-  id: i,
-  emoji: em,
-  left: `${(i * 137.508 + 5) % 90}%`,
-  size: 32 + ((i * 9) % 18),
-  delay: (i * 1.3) % 14,
-  dur:   10 + (i * 0.9) % 6,
-}));
 
 const QUOTES = [
   { text: "Life is a collection of moments. Make them beautiful.", author: "— Unknown" },
@@ -201,42 +184,6 @@ export default function LoginPage() {
       {/* Light pastel base — lavender → sky → blush */}
       <div className="absolute inset-0"
         style={{ background: "linear-gradient(145deg,#ede9fe 0%,#e0f2fe 40%,#fce7f3 70%,#f0fdf4 100%)" }} />
-
-      {/* Soft pastel blobs */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute rounded-full"
-          style={{ width:700,height:700,top:"-15%",left:"-12%",
-            background:"radial-gradient(circle,rgba(167,139,250,0.28) 0%,transparent 65%)",
-            animation:"glow-pulse 7s ease-in-out infinite" }} />
-        <div className="absolute rounded-full"
-          style={{ width:600,height:600,bottom:"-10%",right:"-10%",
-            background:"radial-gradient(circle,rgba(251,113,133,0.22) 0%,transparent 65%)",
-            animation:"glow-pulse 9s ease-in-out infinite",animationDelay:"3s" }} />
-        <div className="absolute rounded-full"
-          style={{ width:500,height:500,top:"30%",right:"15%",
-            background:"radial-gradient(circle,rgba(56,189,248,0.2) 0%,transparent 65%)",
-            animation:"glow-pulse 6s ease-in-out infinite",animationDelay:"1.5s" }} />
-      </div>
-
-      {/* Rising emoji particles */}
-      {PARTICLES.map(p => (
-        <div key={p.id} style={{
-          position:"fixed",
-          bottom:"-60px",
-          left: p.left,
-          fontSize: p.size,
-          lineHeight:1,
-          pointerEvents:"none",
-          zIndex:1,
-          animation: `float-up ${p.dur}s ease-in-out ${p.delay}s infinite`,
-        }}>
-          {p.emoji}
-        </div>
-      ))}
-
-      {/* Fine grid overlay */}
-      <div className="absolute inset-0 opacity-[0.12] pointer-events-none"
-        style={{ backgroundImage:"linear-gradient(rgba(139,92,246,0.4) 1px,transparent 1px),linear-gradient(90deg,rgba(139,92,246,0.4) 1px,transparent 1px)", backgroundSize:"48px 48px" }} />
     </>
   );
 
