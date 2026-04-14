@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, albumsTable, albumPhotosTable, photosTable } from "@workspace/db";
-import { eq, and, desc, inArray, ne } from "drizzle-orm";
+import { eq, and, desc, inArray, ne, sql } from "drizzle-orm";
 import { generateSasUrl, deleteBlob } from "../lib/azure-storage.js";
 
 const router = Router();
@@ -26,10 +26,25 @@ router.get("/albums/trashed", async (req: any, res) => {
 
 router.post("/albums/:id/restore", async (req: any, res) => {
   const userId = req.currentUser.id;
+  const albumId = req.params.id;
+
+  // Un-trash all photos that belong to this album and are currently trashed
+  const links = await db
+    .select({ photoId: albumPhotosTable.photoId })
+    .from(albumPhotosTable)
+    .where(eq(albumPhotosTable.albumId, albumId));
+  const photoIds = links.map((l: { photoId: string }) => l.photoId);
+  if (photoIds.length > 0) {
+    await db
+      .update(photosTable)
+      .set({ trashed: false, trashedAt: null })
+      .where(and(inArray(photosTable.id, photoIds), eq(photosTable.trashed, true)));
+  }
+
   const [album] = await db
     .update(albumsTable)
     .set({ trashed: false, trashedAt: null })
-    .where(and(eq(albumsTable.id, req.params.id), eq(albumsTable.userId, userId)))
+    .where(and(eq(albumsTable.id, albumId), eq(albumsTable.userId, userId)))
     .returning();
   if (!album) return res.status(404).json({ error: "Not found" });
   res.json(album);
@@ -37,50 +52,32 @@ router.post("/albums/:id/restore", async (req: any, res) => {
 
 router.get("/albums", async (req: any, res) => {
   const userId = req.currentUser.id;
-  const albums = await db
-    .select()
+
+  // Single query: count non-trashed photos and pick a cover blob per album
+  const rows = await db
+    .select({
+      id: albumsTable.id,
+      name: albumsTable.name,
+      description: albumsTable.description,
+      createdAt: albumsTable.createdAt,
+      photoCount: sql<number>`COUNT(${photosTable.id}) FILTER (WHERE ${photosTable.trashed} = false AND ${photosTable.hidden} = false)`,
+      coverBlobName: sql<string | null>`MIN(CASE WHEN ${photosTable.trashed} = false AND ${photosTable.hidden} = false AND ${photosTable.contentType} NOT LIKE 'video/%' THEN ${photosTable.blobName} END)`,
+    })
     .from(albumsTable)
+    .leftJoin(albumPhotosTable, eq(albumPhotosTable.albumId, albumsTable.id))
+    .leftJoin(photosTable, eq(photosTable.id, albumPhotosTable.photoId))
     .where(and(eq(albumsTable.userId, userId), eq(albumsTable.trashed, false)))
+    .groupBy(albumsTable.id)
     .orderBy(desc(albumsTable.createdAt));
 
-  const albumsWithCounts = await Promise.all(
-    albums.map(async (album: any) => {
-      const albumPhotos = await db
-        .select({ photoId: albumPhotosTable.photoId })
-        .from(albumPhotosTable)
-        .where(eq(albumPhotosTable.albumId, album.id));
-
-      const photoIds = albumPhotos.map((ap: { photoId: string }) => ap.photoId);
-
-      // Only count and use non-trashed photos
-      let coverUrl: string | undefined;
-      let photoCount = 0;
-      if (photoIds.length > 0) {
-        const activePhotos = await db
-          .select()
-          .from(photosTable)
-          .where(and(eq(photosTable.trashed, false), eq(photosTable.hidden, false)))
-          .then((rows: any[]) => rows.filter((p) => photoIds.includes(p.id)));
-
-        photoCount = activePhotos.length;
-        if (activePhotos.length > 0) {
-          const coverPhoto =
-            activePhotos.find((p: any) => !p.contentType?.startsWith("video/")) ??
-            activePhotos[0];
-          coverUrl = generateSasUrl(coverPhoto.blobName, 3600);
-        }
-      }
-
-      return {
-        id: album.id,
-        name: album.name,
-        description: album.description,
-        photoCount,
-        coverUrl,
-        createdAt: album.createdAt,
-      };
-    }),
-  );
+  const albumsWithCounts = rows.map((r: any) => ({
+    id: r.id,
+    name: r.name,
+    description: r.description,
+    photoCount: Number(r.photoCount ?? 0),
+    coverUrl: r.coverBlobName ? generateSasUrl(r.coverBlobName, 3600) : undefined,
+    createdAt: r.createdAt,
+  }));
 
   res.json(albumsWithCounts);
 });
@@ -168,10 +165,39 @@ router.delete("/albums/:id", async (req: any, res) => {
 
     await db.delete(albumsTable).where(and(eq(albumsTable.id, albumId), eq(albumsTable.userId, userId)));
   } else {
+    const albumId = req.params.id;
+    // Cascade: soft-trash photos that are exclusively in this album (not in any other non-trashed album)
+    const links = await db
+      .select({ photoId: albumPhotosTable.photoId })
+      .from(albumPhotosTable)
+      .where(eq(albumPhotosTable.albumId, albumId));
+    const photoIds = links.map((l: { photoId: string }) => l.photoId);
+
+    if (photoIds.length > 0) {
+      // Photos also linked to another non-trashed album must NOT be trashed
+      const sharedLinks = await db
+        .selectDistinct({ photoId: albumPhotosTable.photoId })
+        .from(albumPhotosTable)
+        .innerJoin(albumsTable, eq(albumsTable.id, albumPhotosTable.albumId))
+        .where(and(
+          inArray(albumPhotosTable.photoId, photoIds),
+          ne(albumPhotosTable.albumId, albumId),
+          eq(albumsTable.trashed, false),
+        ));
+      const sharedIds = new Set(sharedLinks.map((r: { photoId: string }) => r.photoId));
+      const exclusiveIds = photoIds.filter((id: string) => !sharedIds.has(id));
+      if (exclusiveIds.length > 0) {
+        await db
+          .update(photosTable)
+          .set({ trashed: true, trashedAt: new Date() })
+          .where(inArray(photosTable.id, exclusiveIds));
+      }
+    }
+
     await db
       .update(albumsTable)
       .set({ trashed: true, trashedAt: new Date() })
-      .where(and(eq(albumsTable.id, req.params.id), eq(albumsTable.userId, userId)));
+      .where(and(eq(albumsTable.id, albumId), eq(albumsTable.userId, userId)));
   }
   res.status(204).send();
 });
