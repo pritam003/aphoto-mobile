@@ -45,6 +45,7 @@ interface ResumeData {
   items: any[];
   processedIds: Set<string>;
   accessToken: string;
+  refreshToken: string | undefined;
   userId: string;
   albumId?: string;
   noAlbum?: boolean;
@@ -58,7 +59,7 @@ function requireAuth(req: any, res: any, next: any) {
   next();
 }
 
-async function runImport(importId: string, sessionId: string, userId: string, accessToken: string, targetAlbumId?: string, noAlbum?: boolean) {
+async function runImport(importId: string, sessionId: string, userId: string, accessToken: string, refreshToken: string | undefined, targetAlbumId?: string, noAlbum?: boolean) {
   const status = importStatuses.get(importId)!;
 
   try {
@@ -128,9 +129,9 @@ async function runImport(importId: string, sessionId: string, userId: string, ac
 
     // Save resume data so we can restart from where it fails
     const processedIds = new Set<string>();
-    resumeDataStore.set(importId, { items, processedIds, accessToken, userId, albumId, noAlbum });
+    resumeDataStore.set(importId, { items, processedIds, accessToken, refreshToken, userId, albumId, noAlbum });
 
-    await processItems(importId, items, processedIds, status, accessToken, userId, albumId);
+    await processItems(importId, items, processedIds, status, accessToken, refreshToken, userId, albumId);
 
     if (status.status !== "error") {
       status.status = "done";
@@ -150,16 +151,90 @@ async function runImport(importId: string, sessionId: string, userId: string, ac
   }
 }
 
+/** Download a single URL with a 60s timeout, retrying up to maxRetries times on transient errors.
+ *  Refreshes the access token on 401 using the refresh token if available. */
+async function fetchWithRetry(
+  url: string,
+  tokenHolder: { accessToken: string },
+  refreshToken: string | undefined,
+  maxRetries = 3,
+): Promise<Buffer> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60_000); // 60s per photo
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${tokenHolder.accessToken}` },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (res.status === 401 && refreshToken && attempt < maxRetries) {
+        // Access token expired — refresh and retry immediately
+        const newToken = await refreshAccessToken(refreshToken);
+        if (newToken) { tokenHolder.accessToken = newToken; }
+        continue;
+      }
+      if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
+        // Rate limited or server error — back off then retry
+        if (attempt < maxRetries) {
+          await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
+          continue;
+        }
+      }
+      if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+      return Buffer.from(await res.arrayBuffer());
+    } catch (err: any) {
+      clearTimeout(timeout);
+      const isAbort = err?.name === "AbortError";
+      const isTransient = isAbort || String(err).includes("ECONNRESET") || String(err).includes("ETIMEDOUT") || String(err).includes("fetch failed");
+      if (isTransient && attempt < maxRetries) {
+        logger.warn({ attempt, url: url.slice(0, 60) }, isAbort ? "Download timed out, retrying" : "Transient error, retrying");
+        await new Promise(r => setTimeout(r, 2000 * Math.pow(2, attempt)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error("Download failed after retries");
+}
+
+/** Refresh an expired Google access token. Returns the new token or undefined on failure. */
+async function refreshAccessToken(refreshToken: string): Promise<string | undefined> {
+  try {
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID!,
+        client_secret: GOOGLE_CLIENT_SECRET!,
+        refresh_token: refreshToken,
+        grant_type: "refresh_token",
+      }).toString(),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) { logger.warn({ status: res.status }, "Token refresh failed"); return undefined; }
+    const data = await res.json() as { access_token?: string };
+    return data.access_token;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Process a list of items, skipping already-processed IDs. Shared by initial run and resume. */
 async function processItems(
   importId: string,
   items: any[],
   processedIds: Set<string>,
   status: ImportStatus,
-  accessToken: string,
+  initialAccessToken: string,
+  refreshToken: string | undefined,
   userId: string,
   albumId: string | undefined,
 ) {
+  // Mutable token holder so fetchWithRetry can update it on refresh
+  const tokenHolder = { accessToken: initialAccessToken };
+
   for (const item of items) {
     const itemId: string = item.id || item.mediaFile?.filename || "";
     if (processedIds.has(itemId)) continue; // already done (resume skip)
@@ -177,12 +252,13 @@ async function processItems(
       const ext = isVideo ? ".mp4" : ".jpg";
       const baseUrl: string = item.mediaFile?.baseUrl || "";
       const downloadUrl = isVideo ? `${baseUrl}=dv` : `${baseUrl}=d`;
-      const photoRes = await fetch(downloadUrl, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!photoRes.ok) throw new Error(`Download failed: ${photoRes.status} ${await photoRes.text()}`);
 
-      const buffer = Buffer.from(await photoRes.arrayBuffer());
+      const buffer = await fetchWithRetry(downloadUrl, tokenHolder, refreshToken);
+
+      // Keep resume store's accessToken in sync in case it was refreshed
+      const resume = resumeDataStore.get(importId);
+      if (resume) resume.accessToken = tokenHolder.accessToken;
+
       const blobName = `${userId}/${albumId ?? "library"}/${randomUUID()}${ext}`;
       await uploadBlob(blobName, buffer, mimeType);
 
@@ -210,12 +286,20 @@ async function processItems(
 
       processedIds.add(itemId);
       status.imported++;
+
+      // Small delay to stay within Google's per-minute quota (avoid 429)
+      await new Promise(r => setTimeout(r, 150));
     } catch (err: any) {
       logger.error({ err: String(err), itemId }, "Failed to import photo");
       status.errors++;
-      // If Azure storage or DB fails consistently, bubble up to mark as resumable
-      if (String(err).includes("ECONNREFUSED") || String(err).includes("ETIMEDOUT")) {
-        throw err; // stop the loop — outer catch will mark resumable
+      // Bubble up storage/DB errors so outer catch marks as resumable
+      if (
+        String(err).includes("ECONNREFUSED") ||
+        String(err).includes("ETIMEDOUT") ||
+        String(err).includes("ENOTFOUND") ||
+        String(err).includes("after retries")
+      ) {
+        throw err;
       }
     }
   }
@@ -280,7 +364,10 @@ router.get("/google/callback", async (req, res) => {
     return res.redirect(`${frontendUrl}/albums?import_error=auth_failed`);
   }
 
-  const { access_token } = await tokenRes.json() as { access_token: string };
+  const { access_token, refresh_token } = await tokenRes.json() as { access_token: string; refresh_token?: string };
+  if (!refresh_token) {
+    logger.warn("No refresh_token returned by Google — token refresh after expiry will not be possible");
+  }
 
   // Create a Photos Picker session
   const sessRes = await fetch("https://photospicker.googleapis.com/v1/sessions", {
@@ -309,7 +396,7 @@ router.get("/google/callback", async (req, res) => {
   // Allow originating tab to resolve importId by state
   stateToImportId.set(state, importId);
 
-  runImport(importId, session.id, pending.userId, access_token, pending.targetAlbumId, pending.noAlbum).catch(console.error);
+  runImport(importId, session.id, pending.userId, access_token, refresh_token, pending.targetAlbumId, pending.noAlbum).catch(console.error);
 
   // Redirect this tab (the OAuth tab) straight to the picker so the user
   // only ever sees 2 tabs: APhoto + picker.
@@ -372,7 +459,7 @@ router.post("/google/import/:id/resume", requireAuth, async (req: any, res) => {
   // Run async
   (async () => {
     try {
-      await processItems(importId, remaining, resume.processedIds, status, resume.accessToken, resume.userId, resume.albumId);
+      await processItems(importId, remaining, resume.processedIds, status, resume.accessToken, resume.refreshToken, resume.userId, resume.albumId);
       if (status.status !== "error") {
         status.status = "done";
         resumeDataStore.delete(importId);
