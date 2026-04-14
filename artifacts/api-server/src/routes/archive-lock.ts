@@ -62,7 +62,7 @@ function totpVerify(secret: string, token: string, window = 1): boolean {
 }
 
 function keyUri(secret: string, email: string): string {
-  return `otpauth://totp/${encodeURIComponent("APhoto Archive")}:${encodeURIComponent(email)}?secret=${secret}&issuer=${encodeURIComponent("APhoto Archive")}&algorithm=SHA1&digits=6&period=30`;
+  return `otpauth://totp/${encodeURIComponent("APhoto Archive")}:${encodeURIComponent(email)}?secret=${secret}&issuer=${encodeURIComponent("APhoto Archive")}`;
 }
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
