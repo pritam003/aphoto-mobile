@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, albumsTable, albumPhotosTable, photosTable } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
-import { generateSasUrl } from "../lib/azure-storage.js";
+import { eq, and, desc, inArray, ne } from "drizzle-orm";
+import { generateSasUrl, deleteBlob } from "../lib/azure-storage.js";
 
 const router = Router();
 
@@ -138,7 +138,35 @@ router.delete("/albums/:id", async (req: any, res) => {
   const userId = req.currentUser.id;
   const { permanent } = req.query as Record<string, string>;
   if (permanent === "true") {
-    await db.delete(albumsTable).where(and(eq(albumsTable.id, req.params.id), eq(albumsTable.userId, userId)));
+    const albumId = req.params.id;
+    // Only delete photos that belong exclusively to this album (not shared with others)
+    const links = await db
+      .select({ photoId: albumPhotosTable.photoId })
+      .from(albumPhotosTable)
+      .where(eq(albumPhotosTable.albumId, albumId));
+    const photoIds = links.map((l: { photoId: string }) => l.photoId);
+
+    if (photoIds.length > 0) {
+      // Find photos that also exist in other albums
+      const sharedLinks = await db
+        .selectDistinct({ photoId: albumPhotosTable.photoId })
+        .from(albumPhotosTable)
+        .where(and(inArray(albumPhotosTable.photoId, photoIds), ne(albumPhotosTable.albumId, albumId)));
+      const sharedIds = new Set(sharedLinks.map((r: { photoId: string }) => r.photoId));
+
+      // Photos only in this album → delete blob + DB row
+      const exclusiveIds = photoIds.filter((id: string) => !sharedIds.has(id));
+      if (exclusiveIds.length > 0) {
+        const photosToDelete = await db
+          .select({ id: photosTable.id, blobName: photosTable.blobName })
+          .from(photosTable)
+          .where(inArray(photosTable.id, exclusiveIds));
+        await Promise.all(photosToDelete.map((p: { id: string; blobName: string }) => deleteBlob(p.blobName).catch(() => {})));
+        await db.delete(photosTable).where(inArray(photosTable.id, exclusiveIds));
+      }
+    }
+
+    await db.delete(albumsTable).where(and(eq(albumsTable.id, albumId), eq(albumsTable.userId, userId)));
   } else {
     await db
       .update(albumsTable)
@@ -158,25 +186,25 @@ router.get("/albums/:id/photos", async (req: any, res) => {
 
   if (!album) return res.status(404).json({ error: "Not found" });
 
-  const albumPhotoLinks = await db
-    .select({ photoId: albumPhotosTable.photoId })
-    .from(albumPhotosTable)
-    .where(eq(albumPhotosTable.albumId, req.params.id));
+  // Single JOIN query instead of N+1 individual photo queries
+  const rows = await db
+    .select({ photo: photosTable })
+    .from(photosTable)
+    .innerJoin(albumPhotosTable, eq(albumPhotosTable.photoId, photosTable.id))
+    .where(
+      and(
+        eq(albumPhotosTable.albumId, req.params.id),
+        eq(photosTable.trashed, false),
+        eq(photosTable.hidden, false),
+      ),
+    );
 
-  const photoIds = albumPhotoLinks.map((ap: { photoId: string }) => ap.photoId);
-  if (photoIds.length === 0) return res.json({ photos: [], total: 0 });
+  const photos = rows.map(r => {
+    const url = generateSasUrl(r.photo.blobName, 3600);
+    return { ...r.photo, url, thumbnailUrl: url, albums: [req.params.id] };
+  });
 
-  const photos = await Promise.all(
-    photoIds.map(async (photoId: string) => {
-      const [photo] = await db.select().from(photosTable).where(and(eq(photosTable.id, photoId), eq(photosTable.trashed, false), eq(photosTable.hidden, false)));
-      if (!photo) return null;
-      const url = generateSasUrl(photo.blobName, 3600);
-      return { ...photo, url, thumbnailUrl: url, albums: [req.params.id] };
-    }),
-  );
-
-  const validPhotos = photos.filter(Boolean) as any[];
-  validPhotos.sort((a, b) => {
+  photos.sort((a: any, b: any) => {
     if (orderBy === "uploaded") {
       return new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime();
     }
@@ -184,7 +212,7 @@ router.get("/albums/:id/photos", async (req: any, res) => {
     const db2 = new Date(b.takenAt ?? b.uploadedAt).getTime();
     return db2 - da;
   });
-  res.json({ photos: validPhotos, total: validPhotos.length });
+  res.json({ photos, total: photos.length });
 });
 
 router.post("/albums/:id/photos", async (req: any, res) => {
