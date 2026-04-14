@@ -39,13 +39,14 @@ export default function GoogleImportModal({ onClose, activeImportId, targetAlbum
   const thumbPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const doneFiredRef = useRef(false);
 
-  // Fire onDone once when status transitions to "done"
+  // Fire onDone once when status transitions to "done", then auto-close after 2s
   useEffect(() => {
     if (importStatus?.status === "done" && !doneFiredRef.current) {
       doneFiredRef.current = true;
       onDone?.(importStatus.albumId);
+      setTimeout(() => onClose(), 2000);
     }
-  }, [importStatus?.status, importStatus?.albumId, onDone]);
+  }, [importStatus?.status, importStatus?.albumId, onDone, onClose]);
 
   // Phase A: poll for importId by state (OAuth tab open)
   useEffect(() => {
