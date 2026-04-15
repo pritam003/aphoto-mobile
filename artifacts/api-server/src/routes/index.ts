@@ -8,6 +8,7 @@ import albumSharesRouter from "./album-shares.js";
 import blobsRouter from "./blobs.js";
 import googleImportRouter from "./google-import.js";
 import archiveLockRouter from "./archive-lock.js";
+import peopleRouter from "./people.js";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(sharesRouter);
 router.use(blobsRouter);
 router.use(googleImportRouter);
 router.use(archiveLockRouter);
+router.use(peopleRouter);
 
 export default router;

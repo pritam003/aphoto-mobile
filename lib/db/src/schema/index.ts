@@ -66,6 +66,35 @@ export const userSettingsTable = pgTable("user_settings", {
   archiveTotpSecret: text("archive_totp_secret"),
 });
 
+// ── Face recognition ──────────────────────────────────────────────────────────
+
+/** A recognised person (cluster of similar faces belonging to one user). */
+export const peopleTable = pgTable("people", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull(),
+  name: text("name"),
+  coverFaceBlob: text("cover_face_blob"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("people_user_idx").on(t.userId),
+]);
+
+/** A single detected face within a photo, optionally linked to a person. */
+export const photoFacesTable = pgTable("photo_faces", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  photoId: uuid("photo_id").notNull().references(() => photosTable.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  personId: uuid("person_id").references(() => peopleTable.id, { onDelete: "set null" }),
+  /** The persistedFaceId returned by Azure LargeFaceList addFace. */
+  azurePersistedFaceId: text("azure_persisted_face_id"),
+  /** Normalised 0-1 bounding box: {top, left, width, height} stored as JSON string. */
+  boundingBox: text("bounding_box"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("photo_faces_photo_idx").on(t.photoId),
+  index("photo_faces_user_person_idx").on(t.userId, t.personId),
+]);
+
 export const insertPhotoSchema = createInsertSchema(photosTable).omit({ id: true, uploadedAt: true });
 export const insertAlbumSchema = createInsertSchema(albumsTable).omit({ id: true, createdAt: true });
 
@@ -74,5 +103,7 @@ export type Album = typeof albumsTable.$inferSelect;
 export type AlbumPhoto = typeof albumPhotosTable.$inferSelect;
 export type ShareLink = typeof shareLinksTable.$inferSelect;
 export type AlbumShare = typeof albumSharesTable.$inferSelect;
+export type Person = typeof peopleTable.$inferSelect;
+export type PhotoFace = typeof photoFacesTable.$inferSelect;
 export type InsertPhoto = z.infer<typeof insertPhotoSchema>;
 export type InsertAlbum = z.infer<typeof insertAlbumSchema>;

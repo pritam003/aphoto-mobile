@@ -5,6 +5,7 @@ import path from "path";
 import { db, photosTable, albumPhotosTable, albumsTable, shareLinksTable } from "@workspace/db";
 import { eq, and, desc, ilike, or, sql } from "drizzle-orm";
 import { uploadBlob, deleteBlob, generateSasUrl, generateUploadSasUrl, downloadBlob } from "../lib/azure-storage.js";
+import { processFacesForPhoto } from "../lib/face-recognition.js";
 import exifr from "exifr";
 
 /** Parse an EXIF date value which may be a Date object or the non-standard "YYYY:MM:DD HH:MM:SS" string. */
@@ -325,15 +326,18 @@ router.post("/photos/register", async (req: any, res) => {
   const url = generateSasUrl(blobName);
   res.status(201).json({ ...photo, url, thumbnailUrl: url, albums: albumId ? [albumId] : [] });
 
-  // Async EXIF backfill: if client didn't provide takenAt, download the blob and extract ourselves
-  if (!takenAt && contentType.startsWith("image/")) {
-    downloadBlob(blobName)
-      .then(buf => extractTakenAt(buf, contentType))
-      .then(extracted => {
-        if (extracted) return db.update(photosTable).set({ takenAt: extracted }).where(eq(photosTable.id, photo.id));
-      })
-      .catch(() => {});
-  }
+  // Async EXIF backfill + face detection (fire-and-forget)
+  downloadBlob(blobName)
+    .then(async (buf) => {
+      if (!takenAt && contentType.startsWith("image/")) {
+        const extracted = await extractTakenAt(buf, contentType);
+        if (extracted) {
+          await db.update(photosTable).set({ takenAt: extracted }).where(eq(photosTable.id, photo.id));
+        }
+      }
+      await processFacesForPhoto(photo.id, userId, blobName, buf, contentType);
+    })
+    .catch(() => {});
 });
 
 router.post("/photos", upload.single("file"), async (req: any, res) => {
@@ -383,6 +387,9 @@ router.post("/photos", upload.single("file"), async (req: any, res) => {
     thumbnailUrl: url,
     albums: albumId ? [albumId] : [],
   });
+
+  // Async face detection (fire-and-forget)
+  processFacesForPhoto(photo.id, userId, blobName, req.file.buffer, req.file.mimetype).catch(() => {});
 });
 
 router.get("/photos/:id/url", async (req: any, res) => {
