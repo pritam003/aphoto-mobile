@@ -108,7 +108,7 @@ async function cropFaceToBlob(
     thumb.getContext("2d").drawImage(img as any, sx, sy, sw, sh, 0, 0, sw, sh);
 
     const thumbBuffer = thumb.toBuffer("image/jpeg", { quality: 0.85 });
-    const blobName = \`\${userId}/faces/\${randomUUID()}.jpg\`;
+    const blobName = `${userId}/faces/${randomUUID()}.jpg`;
     await uploadBlob(blobName, thumbBuffer, "image/jpeg");
     return blobName;
   } catch {
