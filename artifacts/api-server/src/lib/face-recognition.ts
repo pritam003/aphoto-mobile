@@ -1,295 +1,182 @@
 /**
- * Face recognition service using Azure AI Face API.
+ * Face recognition service using @vladmandic/face-api (fully local — no cloud approval needed).
  *
  * Strategy
  * ────────
- * • One LargeFaceList per user  (id = `user-{userId}`)
- * • On every image upload we detect faces, persist them in the list,
- *   then call FindSimilar to auto-cluster them into `people` rows.
- * • Similarity threshold is configurable via FACE_SIMILARITY_THRESHOLD (default 0.6).
- * • Everything is async / fire-and-forget so upload latency is unaffected.
+ * • Load SSD MobileNet + Landmark + Recognition models once at startup.
+ * • On every image upload, detect faces and extract 128-D descriptors.
+ * • Compare each descriptor against every stored descriptor for the user (Euclidean distance).
+ * • If distance < SIMILARITY_THRESHOLD → assign to matching person.
+ * • Otherwise → create a new person row.
+ * • Everything runs async / fire-and-forget so upload latency is unaffected.
  */
 
 import { randomUUID } from "crypto";
+import path from "path";
+import { createCanvas, loadImage, Image } from "canvas";
+// Use the native Node.js TensorFlow backend for GPU/CPU acceleration
+import "@tensorflow/tfjs-node";
+import * as faceapi from "@vladmandic/face-api";
 import { db, peopleTable, photoFacesTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNotNull } from "drizzle-orm";
 import { uploadBlob } from "./azure-storage.js";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const FACE_ENDPOINT = process.env.AZURE_FACE_ENDPOINT ?? "";
-const FACE_KEY = process.env.AZURE_FACE_KEY ?? "";
-const SIMILARITY_THRESHOLD = parseFloat(process.env.FACE_SIMILARITY_THRESHOLD ?? "0.6");
-const FACE_ENABLED = Boolean(FACE_ENDPOINT && FACE_KEY);
+/** Lower = stricter matching. 0.5 works well for most photos. */
+const SIMILARITY_THRESHOLD = parseFloat(process.env.FACE_SIMILARITY_THRESHOLD ?? "0.5");
 
-// ── Azure Face REST helpers ───────────────────────────────────────────────────
+const MODEL_PATH = path.resolve(
+  new URL(import.meta.url).pathname,
+  "../../../../node_modules/@vladmandic/face-api/model",
+);
 
-async function faceRequest(
-  method: string,
-  path: string,
-  body?: unknown,
-  extraHeaders?: Record<string, string>,
-): Promise<Response> {
-  return fetch(`${FACE_ENDPOINT.replace(/\/$/, "")}/face/v1.0${path}`, {
-    method,
-    headers: {
-      "Ocp-Apim-Subscription-Key": FACE_KEY,
-      "Content-Type": "application/json",
-      ...extraHeaders,
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+// ── Model loading (once per process) ─────────────────────────────────────────
+
+let _loadPromise: Promise<void> | null = null;
+
+function ensureModels(): Promise<void> {
+  if (_loadPromise) return _loadPromise;
+  _loadPromise = (async () => {
+    // face-api.js needs a canvas environment in Node
+    (global as any).HTMLVideoElement = class {};
+    (faceapi as any).env.monkeyPatch({ Canvas: createCanvas as any, Image: Image as any });
+    await Promise.all([
+      faceapi.nets.ssdMobilenetv1.loadFromDisk(MODEL_PATH),
+      faceapi.nets.faceLandmark68Net.loadFromDisk(MODEL_PATH),
+      faceapi.nets.faceRecognitionNet.loadFromDisk(MODEL_PATH),
+    ]);
+  })();
+  return _loadPromise;
 }
 
-async function faceRequestBinary(path: string, buffer: Buffer, contentType: string): Promise<Response> {
-  return fetch(`${FACE_ENDPOINT.replace(/\/$/, "")}/face/v1.0${path}`, {
-    method: "POST",
-    headers: {
-      "Ocp-Apim-Subscription-Key": FACE_KEY,
-      "Content-Type": contentType,
-    },
-    body: buffer,
-  });
+// ── Detection ─────────────────────────────────────────────────────────────────
+
+interface FaceResult {
+  descriptor: Float32Array;
+  box: { x: number; y: number; width: number; height: number };
+  imageWidth: number;
+  imageHeight: number;
 }
 
-// ── LargeFaceList management ──────────────────────────────────────────────────
+async function detectFacesInBuffer(buffer: Buffer): Promise<FaceResult[]> {
+  const img = await loadImage(buffer as any);
+  const canvas = createCanvas(img.width, img.height);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img as any, 0, 0);
 
-const _ensuredLists = new Set<string>();
+  const detections = await faceapi
+    .detectAllFaces(canvas as any, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+    .withFaceLandmarks()
+    .withFaceDescriptors();
 
-async function ensureUserFaceList(userId: string): Promise<string> {
-  // sanitise userId: Azure faceListId must be lowercase alphanumeric + hyphens, max 64 chars
-  const listId = `user-${userId.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 58)}`;
-
-  if (_ensuredLists.has(listId)) return listId;
-
-  const res = await faceRequest("GET", `/largefacelists/${listId}`);
-  if (res.status === 404) {
-    const create = await faceRequest("PUT", `/largefacelists/${listId}`, {
-      name: `User ${userId}`,
-      recognitionModel: "recognition_04",
-    });
-    if (!create.ok) {
-      const body = await create.text();
-      throw new Error(`Failed to create LargeFaceList: ${body}`);
-    }
-  } else if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Failed to check LargeFaceList: ${body}`);
-  }
-
-  _ensuredLists.add(listId);
-  return listId;
+  return detections.map((d) => ({
+    descriptor: d.descriptor,
+    box: d.detection.box,
+    imageWidth: img.width,
+    imageHeight: img.height,
+  }));
 }
 
-// ── Training ─────────────────────────────────────────────────────────────────
+// ── Descriptor storage (DB as vector store) ───────────────────────────────────
 
-// Debounce training per user: only trigger once per 10 s to avoid rate-limit errors
-const _pendingTraining = new Map<string, ReturnType<typeof setTimeout>>();
-
-function scheduleTraining(listId: string): void {
-  if (_pendingTraining.has(listId)) {
-    clearTimeout(_pendingTraining.get(listId)!);
-  }
-  _pendingTraining.set(
-    listId,
-    setTimeout(async () => {
-      _pendingTraining.delete(listId);
-      try {
-        await faceRequest("POST", `/largefacelists/${listId}/train`);
-      } catch {
-        // Training failure is non-fatal; FindSimilar will use last trained state
-      }
-    }, 10_000),
-  );
+/** Stored as comma-separated floats in the azurePersistedFaceId column (repurposed). */
+function serializeDescriptor(d: Float32Array): string {
+  return Array.from(d).join(",");
 }
 
-// ── Detect faces in an image buffer ──────────────────────────────────────────
-
-interface DetectedFace {
-  faceId: string;
-  faceRectangle: { top: number; left: number; width: number; height: number };
+function deserializeDescriptor(s: string): Float32Array {
+  return new Float32Array(s.split(",").map(Number));
 }
 
-async function detectFaces(buffer: Buffer, contentType: string): Promise<DetectedFace[]> {
-  const res = await faceRequestBinary(
-    "/detect?detectionModel=detection_03&recognitionModel=recognition_04&returnFaceId=true",
-    buffer,
-    contentType,
-  );
-  if (!res.ok) return [];
-  const data = (await res.json()) as DetectedFace[];
-  return data;
-}
+// ── Face crop & thumbnail upload ──────────────────────────────────────────────
 
-// ── Add face to LargeFaceList ─────────────────────────────────────────────────
-
-async function persistFace(listId: string, faceId: string): Promise<string | null> {
-  const res = await faceRequest("POST", `/largefacelists/${listId}/persistedfaces`, {
-    faceId,
-    targetFace: undefined, // faceId already selected
-  });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { persistedFaceId: string };
-  return data.persistedFaceId;
-}
-
-// ── FindSimilar against user's own list ──────────────────────────────────────
-
-async function findSimilarPersistedFace(
-  listId: string,
-  persistedFaceId: string,
-): Promise<string | null> {
-  // To call FindSimilar we need a fresh (transient) faceId — not available post-detect.
-  // Instead we iterate existing photo_faces via DB and compare persistedFaceIds directly
-  // using VerifyFace. This is handled in processFacesForPhoto below.
-  return null;
-}
-
-// ── Crop & upload face thumbnail ─────────────────────────────────────────────
-// Uses the Azure Face API crop endpoint rather than pulling in `sharp`.
-
-async function cropAndUploadFaceThumbnail(
-  sourceBlobName: string,
+async function cropFaceToBlob(
+  buffer: Buffer,
+  box: { x: number; y: number; width: number; height: number },
   userId: string,
-  persistedFaceId: string,
-  listId: string,
 ): Promise<string | null> {
   try {
-    const res = await faceRequest(
-      "GET",
-      `/largefacelists/${listId}/persistedfaces/${persistedFaceId}?returnFaceId=true`,
-    );
-    if (!res.ok) return null;
-    // Crop thumbnail via dedicated endpoint
-    const cropRes = await fetch(
-      `${FACE_ENDPOINT.replace(/\/$/, "")}/face/v1.0/largefacelists/${listId}/persistedfaces/${persistedFaceId}/face`,
-      {
-        headers: { "Ocp-Apim-Subscription-Key": FACE_KEY },
-      },
-    );
-    if (!cropRes.ok) return null;
-    const thumbBuffer = Buffer.from(await cropRes.arrayBuffer());
-    const thumbBlobName = `${userId}/faces/${randomUUID()}.jpg`;
-    await uploadBlob(thumbBlobName, thumbBuffer, "image/jpeg");
-    return thumbBlobName;
+    const img = await loadImage(buffer as any);
+    const pad = Math.round(box.width * 0.2);
+    const sx = Math.max(0, box.x - pad);
+    const sy = Math.max(0, box.y - pad);
+    const sw = Math.min(img.width - sx, box.width + pad * 2);
+    const sh = Math.min(img.height - sy, box.height + pad * 2);
+
+    const thumb = createCanvas(sw, sh);
+    thumb.getContext("2d").drawImage(img as any, sx, sy, sw, sh, 0, 0, sw, sh);
+
+    const thumbBuffer = thumb.toBuffer("image/jpeg", { quality: 0.85 });
+    const blobName = \`\${userId}/faces/\${randomUUID()}.jpg\`;
+    await uploadBlob(blobName, thumbBuffer, "image/jpeg");
+    return blobName;
   } catch {
     return null;
   }
 }
 
-// ── Verify two persistedFaceIds belong to the same person ────────────────────
+// ── Clustering ────────────────────────────────────────────────────────────────
 
-async function verifyPersistedFaces(
-  listId: string,
-  persistedFaceId1: string,
-  persistedFaceId2: string,
-): Promise<number> {
-  // Azure VerifyFace requires transient faceIds; instead we use the
-  // FindSimilar-from-persisted endpoint which is available on LargeFaceList.
-  // We find a single candidate by scanning existing DB records
-  // and calling FindSimilar with zero or one persisted-face target.
-  // Returning 0 (no match) here is the safe fallback.
-  return 0;
-}
-
-// ── Group a new persistedFaceId into an existing or new person ─────────────────
-
-async function groupFaceIntoPerson(
-  photoId: string,
+async function findOrCreatePerson(
   userId: string,
-  listId: string,
-  persistedFaceId: string,
-  faceRect: DetectedFace["faceRectangle"],
-  sourceBlobName: string,
-  transientFaceId: string,
-): Promise<void> {
-  // Query existing people for this user and find if any existing face matches
+  descriptor: Float32Array,
+  box: FaceResult["box"],
+  photoBuffer: Buffer,
+): Promise<string> {
+  // Load all stored descriptors for this user that are linked to a person
   const existingFaces = await db
     .select({
-      id: photoFacesTable.id,
       personId: photoFacesTable.personId,
-      azurePersistedFaceId: photoFacesTable.azurePersistedFaceId,
+      descriptorStr: photoFacesTable.azurePersistedFaceId,
     })
     .from(photoFacesTable)
-    .where(
-      and(
-        eq(photoFacesTable.userId, userId),
-        // already grouped
-        // personId IS NOT NULL handled in JS below
-      ),
-    )
-    .limit(500);
+    .where(and(eq(photoFacesTable.userId, userId), isNotNull(photoFacesTable.personId)))
+    .limit(1000);
 
-  let matchedPersonId: string | null = null;
+  // Find best match by Euclidean distance
+  let bestPersonId: string | null = null;
+  let bestDist = Infinity;
 
-  // Use FindSimilar (face list) to find a candidate match using the transient faceId
-  if (existingFaces.length > 0) {
-    const findRes = await faceRequest("POST", "/findsimilars", {
-      faceId: transientFaceId,
-      largeFaceListId: listId,
-      maxNumOfCandidatesReturned: 1,
-      mode: "matchPerson",
-    });
-
-    if (findRes.ok) {
-      const candidates = (await findRes.json()) as Array<{
-        persistedFaceId: string;
-        confidence: number;
-      }>;
-
-      if (candidates.length > 0 && candidates[0].confidence >= SIMILARITY_THRESHOLD) {
-        // Find which person owns this persistedFaceId
-        const matchingFace = existingFaces.find(
-          (f: { id: string; personId: string | null; azurePersistedFaceId: string | null }) =>
-            f.azurePersistedFaceId === candidates[0].persistedFaceId,
-        );
-        if (matchingFace?.personId) {
-          matchedPersonId = matchingFace.personId;
-        }
+  for (const face of existingFaces) {
+    if (!face.descriptorStr || !face.personId) continue;
+    try {
+      const stored = deserializeDescriptor(face.descriptorStr);
+      const dist = faceapi.euclideanDistance(descriptor, stored);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestPersonId = face.personId;
       }
-    }
+    } catch { /* malformed record — skip */ }
   }
 
-  if (!matchedPersonId) {
-    // Create a new person
-    const [newPerson] = await db
-      .insert(peopleTable)
-      .values({ userId })
-      .returning();
-
-    matchedPersonId = newPerson.id;
-
-    // Upload a face thumbnail as cover image
-    const thumbBlob = await cropAndUploadFaceThumbnail(sourceBlobName, userId, persistedFaceId, listId);
-    if (thumbBlob) {
-      await db
-        .update(peopleTable)
-        .set({ coverFaceBlob: thumbBlob })
-        .where(eq(peopleTable.id, matchedPersonId));
-    }
+  if (bestPersonId && bestDist <= SIMILARITY_THRESHOLD) {
+    return bestPersonId;
   }
 
-  const boundingBox = JSON.stringify({
-    top: faceRect.top,
-    left: faceRect.left,
-    width: faceRect.width,
-    height: faceRect.height,
-  });
+  // No match → create new person
+  const [newPerson] = await db
+    .insert(peopleTable)
+    .values({ userId })
+    .returning();
 
-  await db.insert(photoFacesTable).values({
-    photoId,
-    userId,
-    personId: matchedPersonId,
-    azurePersistedFaceId: persistedFaceId,
-    boundingBox,
-  });
+  // Upload face crop as cover image
+  const coverBlob = await cropFaceToBlob(photoBuffer, box, userId);
+  if (coverBlob) {
+    await db
+      .update(peopleTable)
+      .set({ coverFaceBlob: coverBlob })
+      .where(eq(peopleTable.id, newPerson.id));
+  }
+
+  return newPerson.id;
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /**
- * Fire-and-forget: detect faces in the given image buffer and group them
- * into people.  Safe to call without awaiting — errors are caught internally.
+ * Fire-and-forget: detect faces in the image buffer and cluster them into people.
+ * Safe to call without awaiting — all errors are caught internally.
  */
 export async function processFacesForPhoto(
   photoId: string,
@@ -298,32 +185,33 @@ export async function processFacesForPhoto(
   buffer: Buffer,
   contentType: string,
 ): Promise<void> {
-  if (!FACE_ENABLED || !contentType.startsWith("image/")) return;
+  if (!contentType.startsWith("image/")) return;
 
   try {
-    const faces = await detectFaces(buffer, contentType);
+    await ensureModels();
+    const faces = await detectFacesInBuffer(buffer);
     if (faces.length === 0) return;
 
-    const listId = await ensureUserFaceList(userId);
-
     for (const face of faces) {
-      const persistedFaceId = await persistFace(listId, face.faceId);
-      if (!persistedFaceId) continue;
+      const personId = await findOrCreatePerson(userId, face.descriptor, face.box, buffer);
 
-      await groupFaceIntoPerson(
+      const boundingBox = JSON.stringify({
+        top: face.box.y / face.imageHeight,
+        left: face.box.x / face.imageWidth,
+        width: face.box.width / face.imageWidth,
+        height: face.box.height / face.imageHeight,
+      });
+
+      // Store descriptor in azurePersistedFaceId column (repurposed as vector store)
+      await db.insert(photoFacesTable).values({
         photoId,
         userId,
-        listId,
-        persistedFaceId,
-        face.faceRectangle,
-        blobName,
-        face.faceId,
-      );
+        personId,
+        azurePersistedFaceId: serializeDescriptor(face.descriptor),
+        boundingBox,
+      });
     }
-
-    scheduleTraining(listId);
   } catch (err) {
-    // Non-fatal: log and continue
     console.error("[face-recognition] processFacesForPhoto error:", err);
   }
 }
