@@ -112,6 +112,24 @@ export default function LibraryPage() {
     return () => obs.disconnect();
   }, [nextUnloadedMonth, loadingMonth, loadMonth]);
 
+  // Track which year is currently in view
+  const [activeYear, setActiveYear] = useState<string | null>(null);
+  useEffect(() => {
+    if (yearsList.length === 0) return;
+    const observers: IntersectionObserver[] = [];
+    yearsList.forEach(year => {
+      const el = document.getElementById(`year-${year}`);
+      if (!el) return;
+      const obs = new IntersectionObserver(
+        ([entry]) => { if (entry.isIntersecting) setActiveYear(year); },
+        { rootMargin: "-10% 0px -80% 0px" },
+      );
+      obs.observe(el);
+      observers.push(obs);
+    });
+    return () => observers.forEach(o => o.disconnect());
+  }, [yearsList]);
+
   // Scroll to a year anchor
   const scrollToYear = useCallback((year: string) => {
     const el = document.getElementById(`year-${year}`);
@@ -244,18 +262,35 @@ export default function LibraryPage() {
       {showGoogleImport && <GoogleImportModal onClose={() => setShowGoogleImport(false)} />}
 
       <div className="flex-1 overflow-y-auto px-6 py-5 relative">
-        {/* Year scrubber — fixed on right edge, only in non-search mode */}
+        {/* Year scrubber — vertical timeline on right edge */}
         {!debouncedSearch && yearsList.length > 1 && (
-          <div className="fixed right-2 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-1">
-            {yearsList.map(year => (
-              <button
-                key={year}
-                onClick={() => scrollToYear(year)}
-                className="text-[10px] font-semibold text-muted-foreground hover:text-primary transition-colors px-1 py-0.5 rounded hover:bg-primary/10 leading-none"
-              >
-                {year}
-              </button>
-            ))}
+          <div className="fixed right-3 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-0 select-none">
+            {yearsList.map((year, idx) => {
+              const isActive = year === (activeYear ?? yearsList[0]);
+              return (
+                <div key={year} className="flex items-center group cursor-pointer" onClick={() => scrollToYear(year)}>
+                  {/* Line above dot (skip for first) */}
+                  {idx > 0 && <div className="absolute" />}
+                  <div className="flex flex-col items-center">
+                    {idx > 0 && <div className={`w-px h-4 ${isActive ? 'bg-primary' : 'bg-border'} transition-colors`} />}
+                    {/* Dot + label row */}
+                    <div className="flex items-center gap-1.5">
+                      {/* Year label — appears on hover or when active */}
+                      <span className={`text-[11px] font-semibold transition-all duration-150 ${
+                        isActive
+                          ? 'text-primary opacity-100 translate-x-0'
+                          : 'text-muted-foreground opacity-0 group-hover:opacity-100 translate-x-1 group-hover:translate-x-0'
+                      }`}>{year}</span>
+                      {/* Dot */}
+                      <div className={`rounded-full transition-all duration-150 ${
+                        isActive ? 'w-2.5 h-2.5 bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.2)]' : 'w-1.5 h-1.5 bg-border group-hover:bg-muted-foreground'
+                      }`} />
+                    </div>
+                    {idx < yearsList.length - 1 && <div className={`w-px h-4 ${isActive ? 'bg-primary' : 'bg-border'} transition-colors`} />}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
