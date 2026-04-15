@@ -1,6 +1,6 @@
 import { useRoute } from "wouter";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Images, Upload, X, Check, AlertCircle, Download, ArrowDownToLine, KeyRound, LogIn } from "lucide-react";
+import { Images, Upload, X, Check, AlertCircle, Download, ArrowDownToLine, KeyRound, LogIn, Mail } from "lucide-react";
 import { API_BASE } from "@/lib/api";
 
 interface Photo {
@@ -54,8 +54,24 @@ export default function SharedAlbumPage() {
   const [, params] = useRoute("/shared/album/:token");
   const token = params?.token ?? "";
 
-  // ── Access code gate ────────────────────────────────────────────────────────
-  // Restore from sessionStorage so the user doesn't have to re-enter on refresh
+  // ── Share metadata (fetched once, determines which gate to show) ───────────
+  const [meta, setMeta] = useState<{
+    shareType: "code" | "email";
+    shareName: string;
+    albumName: string;
+    googleClientId: string | null;
+  } | null>(null);
+  const [metaError, setMetaError] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_BASE}/shared/albums/${token}/meta`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(setMeta)
+      .catch(() => setMetaError(true));
+  }, [token]);
+
+  // ── Code-based auth (sessionStorage) ──────────────────────────────────────
   const sessionKey = `access_code:${token}`;
   const [accessCode, setAccessCode] = useState<string>(() => {
     try { return sessionStorage.getItem(sessionKey) ?? ""; } catch { return ""; }
@@ -64,6 +80,16 @@ export default function SharedAlbumPage() {
   const [codeError, setCodeError] = useState("");
   const [verifying, setVerifying] = useState(false);
 
+  // ── Email-based auth (localStorage, persistent across browsers) ────────────
+  const lsKey = `share_access:${token}`;
+  const [emailToken, setEmailToken] = useState<string>(() => {
+    try { return localStorage.getItem(lsKey) ?? ""; } catch { return ""; }
+  });
+  const [googleVerifying, setGoogleVerifying] = useState(false);
+  const [googleError, setGoogleError] = useState("");
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  // ── Album data ─────────────────────────────────────────────────────────────
   const [data, setData] = useState<SharedAlbumData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -72,6 +98,14 @@ export default function SharedAlbumPage() {
   const [lightbox, setLightbox] = useState<Photo | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Build auth headers based on share type ─────────────────────────────────
+  const getAuthHeaders = useCallback((): Record<string, string> => {
+    if (!meta) return {};
+    return meta.shareType === "email"
+      ? { Authorization: `Bearer ${emailToken}` }
+      : { "x-access-code": accessCode };
+  }, [meta, emailToken, accessCode]);
 
   // ── Multi-select ────────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -95,7 +129,7 @@ export default function SharedAlbumPage() {
     try {
       const res = await fetch(`${API_BASE}/shared/albums/${token}/download-zip`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-access-code": accessCode },
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ photoIds: [...selectedIds] }),
       });
       if (!res.ok) throw new Error();
@@ -110,44 +144,50 @@ export default function SharedAlbumPage() {
       URL.revokeObjectURL(url);
       setSelectedIds(new Set());
     } catch {
-      // noop — browser shows its own error
+      // noop
     } finally {
       setZipping(false);
     }
   };
 
   // ── Load album ─────────────────────────────────────────────────────────────
-  const loadAlbum = useCallback(async (code: string) => {
-    if (!token || !code) return;
+  const loadAlbum = useCallback(async (overrideHeaders?: Record<string, string>) => {
+    if (!token || !meta) return;
+    const headers = overrideHeaders ?? getAuthHeaders();
     setLoading(true);
     setError(false);
     try {
-      const res = await fetch(`${API_BASE}/shared/albums/${token}`, {
-        headers: { "x-access-code": code },
-      });
+      const res = await fetch(`${API_BASE}/shared/albums/${token}`, { headers });
       if (res.status === 401 || res.status === 403) {
-        // Code was wrong or expired — clear stored code and show gate again
-        try { sessionStorage.removeItem(sessionKey); } catch { /* noop */ }
-        setAccessCode("");
-        setCodeError("Incorrect access code. Please try again.");
+        if (meta.shareType === "code") {
+          try { sessionStorage.removeItem(sessionKey); } catch { /* noop */ }
+          setAccessCode("");
+          setCodeError("Incorrect access code. Please try again.");
+        } else {
+          try { localStorage.removeItem(lsKey); } catch { /* noop */ }
+          setEmailToken("");
+          setGoogleError("Access expired. Please sign in again.");
+        }
         return;
       }
       if (!res.ok) throw new Error();
-      const json = await res.json();
-      setData(json);
+      setData(await res.json());
     } catch {
       setError(true);
     } finally {
       setLoading(false);
     }
-  }, [token, sessionKey]);
+  }, [token, meta, getAuthHeaders, sessionKey, lsKey]);
 
-  // Load album automatically once we have a valid code
+  // Auto-load album once we have meta + valid auth
   useEffect(() => {
-    if (accessCode) loadAlbum(accessCode);
-  }, [accessCode, loadAlbum]);
+    if (!meta) return;
+    if (meta.shareType === "code" && accessCode) loadAlbum();
+    if (meta.shareType === "email" && emailToken) loadAlbum();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta?.shareType, accessCode, emailToken]);
 
-  // ── Submit access code from gate screen ─────────────────────────────────────
+  // ── Code gate: submit ──────────────────────────────────────────────────────
   const submitCode = async () => {
     const trimmed = codeInput.trim().toUpperCase();
     if (!trimmed) { setCodeError("Please enter the access code."); return; }
@@ -157,22 +197,70 @@ export default function SharedAlbumPage() {
       const res = await fetch(`${API_BASE}/shared/albums/${token}`, {
         headers: { "x-access-code": trimmed },
       });
-      if (res.status === 401 || res.status === 403) {
-        setCodeError("Incorrect access code. Please try again.");
-        return;
-      }
+      if (res.status === 401 || res.status === 403) { setCodeError("Incorrect access code. Please try again."); return; }
       if (!res.ok) { setError(true); return; }
-      // Code is valid — store and set
       try { sessionStorage.setItem(sessionKey, trimmed); } catch { /* noop */ }
-      const json = await res.json();
       setAccessCode(trimmed);
-      setData(json);
+      setData(await res.json());
     } catch {
       setError(true);
     } finally {
       setVerifying(false);
     }
   };
+
+  // ── Google sign-in gate ────────────────────────────────────────────────────
+  const handleGoogleCredential = useCallback(async (credential: string) => {
+    setGoogleVerifying(true);
+    setGoogleError("");
+    try {
+      const res = await fetch(`${API_BASE}/shared/albums/${token}/google-verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential }),
+      });
+      const body = await res.json();
+      if (!res.ok) { setGoogleError(body.error ?? "Sign-in failed."); return; }
+      try { localStorage.setItem(lsKey, body.accessToken); } catch { /* noop */ }
+      setEmailToken(body.accessToken);
+      // Load album using the new token directly (state updates are async)
+      const albumRes = await fetch(`${API_BASE}/shared/albums/${token}`, {
+        headers: { Authorization: `Bearer ${body.accessToken}` },
+      });
+      if (albumRes.ok) setData(await albumRes.json());
+      else setError(true);
+    } catch {
+      setGoogleError("Something went wrong. Please try again.");
+    } finally {
+      setGoogleVerifying(false);
+    }
+  }, [token, lsKey]);
+
+  // Load Google Sign-In button when meta says email + no token yet
+  useEffect(() => {
+    if (!meta || meta.shareType !== "email" || !meta.googleClientId || emailToken) return;
+    const renderBtn = () => {
+      const g = (window as any).google; // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (!g || !googleBtnRef.current) return;
+      g.accounts.id.initialize({
+        client_id: meta.googleClientId,
+        callback: (r: { credential: string }) => handleGoogleCredential(r.credential),
+        auto_select: false,
+      });
+      g.accounts.id.renderButton(googleBtnRef.current, {
+        theme: "outline", size: "large", text: "signin_with", shape: "rectangular",
+      });
+    };
+    if ((window as any).google) { // eslint-disable-line @typescript-eslint/no-explicit-any
+      renderBtn();
+    } else {
+      const s = document.createElement("script");
+      s.src = "https://accounts.google.com/gsi/client";
+      s.async = true;
+      s.onload = renderBtn;
+      document.head.appendChild(s);
+    }
+  }, [meta?.shareType, meta?.googleClientId, emailToken, handleGoogleCredential]);
 
   // ── Keyboard nav ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -200,7 +288,7 @@ export default function SharedAlbumPage() {
     try {
       const res = await fetch(`${API_BASE}/shared/albums/${token}/photos`, {
         method: "POST",
-        headers: { "x-access-code": accessCode },
+        headers: getAuthHeaders(),
         body: formData,
       });
       if (!res.ok) {
@@ -208,7 +296,7 @@ export default function SharedAlbumPage() {
         throw new Error(body.error ?? "Upload failed");
       }
       setUploadState({ status: "done", name: file.name });
-      await loadAlbum(accessCode);
+      await loadAlbum();
       setTimeout(() => setUploadState({ status: "idle" }), 3000);
     } catch (err: any) {
       setUploadState({ status: "error", name: file.name, message: err.message ?? "Upload failed" });
@@ -227,8 +315,68 @@ export default function SharedAlbumPage() {
     handleFiles(e.dataTransfer.files);
   };
 
-  // ── Access code gate ────────────────────────────────────────────────────────
-  if (!accessCode || (!data && !loading && !error)) {
+  // ── States ─────────────────────────────────────────────────────────────────
+  // Meta loading / error
+  if (!meta && !metaError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+  if (metaError || !meta) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center px-4">
+          <Images className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
+          <h2 className="text-lg font-semibold text-foreground mb-1">Album not found</h2>
+          <p className="text-sm text-muted-foreground">This share link may have expired or been revoked.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Google sign-in gate (email shares without a stored token) ──────────────
+  if (meta.shareType === "email" && !emailToken) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background px-4">
+        <div className="w-full max-w-sm">
+          <div className="flex flex-col items-center gap-3 mb-8">
+            <div className="w-14 h-14 rounded-2xl bg-blue-500/10 flex items-center justify-center">
+              <Mail className="w-7 h-7 text-blue-500" />
+            </div>
+            <h1 className="text-xl font-semibold text-foreground">Sign in to access</h1>
+            <p className="text-sm text-muted-foreground text-center">
+              <span className="font-medium text-foreground">{meta.albumName || meta.shareName}</span>
+              {" "}is shared with specific Google accounts. Sign in to verify your access.
+            </p>
+          </div>
+
+          <div className="flex flex-col items-center gap-4">
+            {googleVerifying ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin inline-block" />
+                Verifying…
+              </div>
+            ) : (
+              <div ref={googleBtnRef} className="flex justify-center" />
+            )}
+            {googleError && (
+              <p className="text-xs text-destructive text-center">{googleError}</p>
+            )}
+            {!meta.googleClientId && (
+              <p className="text-xs text-muted-foreground text-center">
+                Google sign-in is not configured on this server.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Access code gate (code shares without a stored code) ───────────────────
+  if (meta.shareType === "code" && !accessCode) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background px-4">
         <div className="w-full max-w-sm">
@@ -238,10 +386,9 @@ export default function SharedAlbumPage() {
             </div>
             <h1 className="text-xl font-semibold text-foreground">Access code required</h1>
             <p className="text-sm text-muted-foreground text-center">
-              This album is protected. Enter the access code shared with you to continue.
+              Enter the access code shared with you to view this album.
             </p>
           </div>
-
           <div className="flex flex-col gap-3">
             <input
               type="text"
@@ -256,19 +403,15 @@ export default function SharedAlbumPage() {
                 codeError ? "border-destructive" : "border-border focus:border-primary"
               }`}
             />
-            {codeError && (
-              <p className="text-xs text-destructive text-center">{codeError}</p>
-            )}
+            {codeError && <p className="text-xs text-destructive text-center">{codeError}</p>}
             <button
               onClick={submitCode}
               disabled={verifying}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
-              {verifying ? (
-                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <LogIn className="w-4 h-4" />
-              )}
+              {verifying
+                ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                : <LogIn className="w-4 h-4" />}
               {verifying ? "Verifying…" : "Access album"}
             </button>
           </div>
@@ -276,8 +419,7 @@ export default function SharedAlbumPage() {
       </div>
     );
   }
-
-  // ── States ─────────────────────────────────────────────────────────────────
+  // Loading / error for album data
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">

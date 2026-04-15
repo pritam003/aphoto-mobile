@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { randomBytes, createHash } from "crypto";
-import multer from "multer";
 import { randomUUID } from "crypto";
+import jwt from "jsonwebtoken";
+import multer from "multer";
 import { db, albumsTable, albumPhotosTable, photosTable, albumSharesTable } from "@workspace/db";
 import { eq, and, isNull } from "drizzle-orm";
 import { generateSasUrl, uploadBlob, downloadBlob } from "../lib/azure-storage.js";
@@ -29,7 +30,7 @@ function hashAccessCode(code: string): string {
 function verifyAccessCode(req: any, res: any, share: any): boolean {
   const raw = ((req.headers["x-access-code"] as string) ?? "").trim();
   if (!raw) {
-    res.status(401).json({ error: "Access code required" });
+    res.status(401).json({ error: "Access code required", shareType: "code" });
     return false;
   }
   if (hashAccessCode(raw) !== share.accessCodeHash) {
@@ -37,6 +38,42 @@ function verifyAccessCode(req: any, res: any, share: any): boolean {
     return false;
   }
   return true;
+}
+
+const JWT_SECRET = process.env.JWT_SECRET || "your-app-id-or-realm-identifier";
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+
+/** Verify a Bearer share-access JWT (for email-based shares). */
+function verifyEmailAccess(req: any, res: any, share: any): boolean {
+  const auth = ((req.headers["authorization"] as string) ?? "").trim();
+  const bearerToken = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!bearerToken) {
+    res.status(401).json({ error: "Sign in required", shareType: "email" });
+    return false;
+  }
+  try {
+    const payload = jwt.verify(bearerToken, JWT_SECRET) as { email: string; shareToken: string };
+    const allowed: string[] = JSON.parse(share.allowedEmails || "[]");
+    if (!allowed.map((e: string) => e.toLowerCase()).includes(payload.email.toLowerCase())) {
+      res.status(403).json({ error: "Your email does not have access to this album" });
+      return false;
+    }
+    if (payload.shareToken !== share.token) {
+      res.status(403).json({ error: "Access token is not valid for this link" });
+      return false;
+    }
+    return true;
+  } catch {
+    res.status(401).json({ error: "Invalid or expired access. Please sign in again.", shareType: "email" });
+    return false;
+  }
+}
+
+/** Dispatch to correct verifier based on share type. */
+function verifyShareAccess(req: any, res: any, share: any): boolean {
+  return (share.shareType ?? "code") === "email"
+    ? verifyEmailAccess(req, res, share)
+    : verifyAccessCode(req, res, share);
 }
 
 const router = Router();
@@ -77,13 +114,30 @@ async function extractTakenAt(buffer: Buffer, mimeType: string): Promise<Date | 
 router.post("/albums/:id/share", requireAuth, async (req: any, res) => {
   const userId = req.currentUser.id;
   const albumId = req.params.id;
-  const { permission = "view", name } = req.body as { permission?: "view" | "contribute"; name?: string };
+  const { permission = "view", name, shareType = "code", allowedEmails } = req.body as {
+    permission?: "view" | "contribute";
+    name?: string;
+    shareType?: "code" | "email";
+    allowedEmails?: string[];
+  };
 
   if (!name || !name.trim()) {
     return res.status(400).json({ error: "A name for this share link is required" });
   }
   if (!["view", "contribute"].includes(permission)) {
     return res.status(400).json({ error: "permission must be 'view' or 'contribute'" });
+  }
+  if (!["code", "email"].includes(shareType)) {
+    return res.status(400).json({ error: "shareType must be 'code' or 'email'" });
+  }
+  if (shareType === "email") {
+    if (!allowedEmails || allowedEmails.length === 0) {
+      return res.status(400).json({ error: "At least one email address is required" });
+    }
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    for (const e of allowedEmails) {
+      if (!emailRe.test(e)) return res.status(400).json({ error: `Invalid email: ${e}` });
+    }
   }
 
   const [album] = await db
@@ -93,26 +147,34 @@ router.post("/albums/:id/share", requireAuth, async (req: any, res) => {
   if (!album) return res.status(404).json({ error: "Album not found" });
 
   const token = randomBytes(24).toString("hex");
+  const appUrl = process.env.APP_URL || "";
+
+  if (shareType === "email") {
+    const emails = allowedEmails!.map(e => e.toLowerCase().trim());
+    await db.insert(albumSharesTable).values({
+      token, albumId, createdBy: userId,
+      name: name.trim(), shareType: "email",
+      allowedEmails: JSON.stringify(emails),
+      permission, accessCodeHash: "",
+    });
+    return res.status(201).json({
+      token, url: `${appUrl}/shared/album/${token}`,
+      permission, name: name.trim(), shareType: "email", allowedEmails: emails,
+    });
+  }
+
+  // Code-based share
   const accessCode = generateAccessCode();
   const accessCodeHash = hashAccessCode(accessCode);
-
   await db.insert(albumSharesTable).values({
-    token,
-    albumId,
-    createdBy: userId,
-    name: name.trim(),
-    permission,
-    accessCodeHash,
+    token, albumId, createdBy: userId,
+    name: name.trim(), shareType: "code",
+    permission, accessCodeHash,
   });
-
-  const appUrl = process.env.APP_URL || "";
-  // accessCode is returned ONCE here — it is never stored in plaintext
+  // accessCode is returned ONCE — never stored in plaintext
   res.status(201).json({
-    token,
-    url: `${appUrl}/shared/album/${token}`,
-    permission,
-    name: name.trim(),
-    accessCode,
+    token, url: `${appUrl}/shared/album/${token}`,
+    permission, name: name.trim(), shareType: "code", accessCode,
   });
 });
 
@@ -138,10 +200,79 @@ router.get("/albums/:id/shares", requireAuth, async (req: any, res) => {
     albumId: s.albumId,
     createdBy: s.createdBy,
     name: s.name,
+    shareType: s.shareType ?? "code",
     permission: s.permission,
+    allowedEmails: (s.shareType ?? "code") === "email" ? JSON.parse(s.allowedEmails || "[]") : undefined,
     createdAt: s.createdAt,
     url: `${appUrl}/shared/album/${s.token}`,
   })) });
+});
+
+// ── Public: get share metadata (type, album name) — no auth required ────────
+router.get("/shared/albums/:token/meta", async (req, res) => {
+  const [share] = await db
+    .select({ shareType: albumSharesTable.shareType, name: albumSharesTable.name, albumId: albumSharesTable.albumId })
+    .from(albumSharesTable)
+    .where(and(eq(albumSharesTable.token, req.params.token), isNull(albumSharesTable.revokedAt)));
+  if (!share) return res.status(404).json({ error: "Share link not found or revoked" });
+
+  const [album] = await db
+    .select({ name: albumsTable.name })
+    .from(albumsTable)
+    .where(eq(albumsTable.id, share.albumId));
+
+  res.json({
+    shareType: share.shareType ?? "code",
+    shareName: share.name,
+    albumName: album?.name ?? "",
+    googleClientId: (share.shareType ?? "code") === "email" ? (GOOGLE_CLIENT_ID ?? null) : null,
+  });
+});
+
+// ── Public: verify Google credential for email-based share access ────────────
+router.post("/shared/albums/:token/google-verify", async (req, res) => {
+  const { credential } = req.body as { credential?: string };
+  if (!credential) return res.status(400).json({ error: "credential required" });
+
+  const [share] = await db
+    .select()
+    .from(albumSharesTable)
+    .where(and(eq(albumSharesTable.token, req.params.token), isNull(albumSharesTable.revokedAt)));
+  if (!share) return res.status(404).json({ error: "Share link not found" });
+  if ((share.shareType ?? "code") !== "email") {
+    return res.status(400).json({ error: "This share link does not use email access" });
+  }
+
+  // Verify Google ID token via Google's tokeninfo endpoint
+  const googleRes = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`
+  );
+  if (!googleRes.ok) return res.status(401).json({ error: "Invalid Google credential" });
+
+  const googleData = await googleRes.json() as {
+    email?: string; email_verified?: string; aud?: string;
+  };
+  if (!googleData.email || googleData.email_verified !== "true") {
+    return res.status(401).json({ error: "Google account email is not verified" });
+  }
+  if (GOOGLE_CLIENT_ID && googleData.aud !== GOOGLE_CLIENT_ID) {
+    return res.status(401).json({ error: "Credential is not intended for this application" });
+  }
+
+  const allowed: string[] = JSON.parse(share.allowedEmails || "[]");
+  if (!allowed.map(e => e.toLowerCase()).includes(googleData.email.toLowerCase())) {
+    return res.status(403).json({
+      error: "Your Google account is not on the access list for this album",
+    });
+  }
+
+  // Issue a 30-day share-specific JWT — Google credential is never stored
+  const accessToken = jwt.sign(
+    { email: googleData.email, shareToken: share.token },
+    JWT_SECRET,
+    { expiresIn: "30d" },
+  );
+  res.json({ accessToken, email: googleData.email });
 });
 
 // ── Owner: revoke a share link ─────────────────────────────────────────────
@@ -167,7 +298,7 @@ router.get("/shared/albums/:token", async (req, res) => {
     .from(albumSharesTable)
     .where(and(eq(albumSharesTable.token, req.params.token), isNull(albumSharesTable.revokedAt)));
   if (!share) return res.status(404).json({ error: "Share link not found or revoked" });
-  if (!verifyAccessCode(req, res, share)) return;
+  if (!verifyShareAccess(req, res, share)) return;
 
   const [album] = await db.select().from(albumsTable).where(eq(albumsTable.id, share.albumId));
   if (!album) return res.status(404).json({ error: "Album not found" });
@@ -194,7 +325,7 @@ router.post("/shared/albums/:token/photos", upload.single("file"), async (req: a
     .from(albumSharesTable)
     .where(and(eq(albumSharesTable.token, req.params.token), isNull(albumSharesTable.revokedAt)));
   if (!share) return res.status(404).json({ error: "Share link not found or revoked" });
-  if (!verifyAccessCode(req, res, share)) return;
+  if (!verifyShareAccess(req, res, share)) return;
   if (share.permission !== "contribute") return res.status(403).json({ error: "This link is view-only" });
 
   const file = req.file;
@@ -232,7 +363,7 @@ router.post("/shared/albums/:token/download-zip", async (req, res) => {
     .from(albumSharesTable)
     .where(and(eq(albumSharesTable.token, req.params.token), isNull(albumSharesTable.revokedAt)));
   if (!share) return res.status(404).json({ error: "Share link not found or revoked" });
-  if (!verifyAccessCode(req, res, share)) return;
+  if (!verifyShareAccess(req, res, share)) return;
 
   const [album] = await db.select().from(albumsTable).where(eq(albumsTable.id, share.albumId));
   if (!album) return res.status(404).json({ error: "Album not found" });

@@ -45,8 +45,10 @@ export const albumSharesTable = pgTable("album_shares", {
   albumId: uuid("album_id").notNull().references(() => albumsTable.id, { onDelete: "cascade" }),
   createdBy: text("created_by").notNull(),
   name: text("name"),                                        // human-readable label set by owner
+  shareType: text("share_type").notNull().default("code"),  // 'code' | 'email'
+  allowedEmails: text("allowed_emails"),                    // JSON array: '["a@b.com","c@d.com"]'
   permission: text("permission").notNull().default("view"), // 'view' | 'contribute'
-  accessCodeHash: text("access_code_hash").notNull(),       // SHA-256 of the generated access code
+  accessCodeHash: text("access_code_hash").notNull(),       // SHA-256 of the generated access code (empty for email shares)
   revokedAt: timestamp("revoked_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
