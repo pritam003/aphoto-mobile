@@ -203,60 +203,101 @@ function ReelOverlay({ day, onClose }: { day: DayGroup; onClose: () => void }) {
   );
 }
 
-// ── Day tile (Google Photos card style) ──────────────────────────────────────
+// ── Day tile — auto-cycling with crossfade ────────────────────────────────────
+const TILE_MS = 2800;
+
 function DayTile({ day, isToday, onClick }: { day: DayGroup; isToday: boolean; onClick: () => void }) {
-  const coverPhoto = day.photos[0];
-  const extraCount = day.photos.length - 1;
+  const { photos, dayName } = day;
+  const [idx, setIdx] = useState(0);
+  const [fading, setFading] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Auto-cycle
+  useEffect(() => {
+    if (photos.length <= 1) return;
+    timerRef.current = setInterval(() => {
+      setFading(true);
+      setTimeout(() => {
+        setIdx(i => (i + 1) % photos.length);
+        setFading(false);
+      }, 350);
+    }, TILE_MS);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [photos.length]);
+
+  const photo = photos[idx];
+  const year = getYear(photo);
 
   return (
     <div
       onClick={onClick}
       className="relative flex-shrink-0 cursor-pointer rounded-2xl overflow-hidden group"
-      style={{ width: 160, height: 200 }}
+      style={{ width: 210, height: 270 }}
     >
-      {/* Cover image */}
+      {/* Cycling photo with crossfade */}
       <img
-        src={coverPhoto.thumbnailUrl || coverPhoto.url}
-        alt={day.dayName}
-        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+        key={photo.id}
+        src={photo.thumbnailUrl || photo.url}
+        alt={dayName}
+        className="absolute inset-0 w-full h-full object-cover transition-opacity duration-350"
+        style={{ opacity: fading ? 0 : 1 }}
         draggable={false}
       />
 
-      {/* Stacked cards hint — 2 thin slices peeking above */}
-      {day.photos.length > 1 && (
-        <div className="absolute top-0 inset-x-2 h-2 rounded-t-xl bg-white/30 backdrop-blur-sm" style={{ zIndex: 1 }} />
-      )}
-      {day.photos.length > 2 && (
-        <div className="absolute top-0 inset-x-4 h-1.5 rounded-t-xl bg-white/20 backdrop-blur-sm" style={{ zIndex: 0 }} />
-      )}
+      {/* Subtle scale on hover */}
+      <div className="absolute inset-0 group-hover:scale-105 transition-transform duration-500 pointer-events-none" />
 
       {/* Dark gradient */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/15 to-transparent" />
 
       {/* Today badge */}
       {isToday && (
-        <div className="absolute top-2.5 left-2.5 bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">
+        <div className="absolute top-3 left-3 bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide shadow">
           Today
         </div>
       )}
 
-      {/* Photo count top-right */}
-      {extraCount > 0 && (
-        <div className="absolute top-2.5 right-2.5 bg-black/50 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded-full backdrop-blur-sm">
-          +{extraCount}
+      {/* Dot indicators top-right */}
+      {photos.length > 1 && (
+        <div className="absolute top-3 right-3 flex gap-1">
+          {photos.slice(0, 5).map((_, i) => (
+            <div
+              key={i}
+              className="rounded-full transition-all duration-300"
+              style={{
+                width: i === idx ? 12 : 5,
+                height: 5,
+                background: i === idx ? "white" : "rgba(255,255,255,0.45)",
+              }}
+            />
+          ))}
+          {photos.length > 5 && (
+            <div className="text-white text-[9px] ml-0.5 leading-none self-center opacity-70">+{photos.length - 5}</div>
+          )}
         </div>
       )}
 
-      {/* Bottom label */}
-      <div className="absolute bottom-0 inset-x-0 p-3">
-        <p className="text-white font-bold text-sm leading-tight">{day.dayName}</p>
-        <p className="text-white/65 text-[11px] mt-0.5">
-          {day.photos.length} {day.photos.length === 1 ? "memory" : "memories"}
+      {/* Thin progress bar at very bottom edge */}
+      {photos.length > 1 && (
+        <div className="absolute bottom-0 inset-x-0 h-0.5 bg-white/20">
+          <div
+            className="h-full bg-white/70 rounded-full"
+            style={{
+              width: `${((idx + 1) / photos.length) * 100}%`,
+              transition: "width 0.3s ease",
+            }}
+          />
+        </div>
+      )}
+
+      {/* Bottom info */}
+      <div className="absolute bottom-2 inset-x-0 px-3.5 pb-1">
+        {year && <p className="text-white/60 text-[11px] mb-0.5">{year}</p>}
+        <p className="text-white font-bold text-base leading-tight">{dayName}</p>
+        <p className="text-white/60 text-[11px] mt-0.5">
+          {photos.length} {photos.length === 1 ? "memory" : "memories"}
         </p>
       </div>
-
-      {/* Hover overlay */}
-      <div className="absolute inset-0 bg-white/0 group-hover:bg-white/8 transition-colors duration-200" />
     </div>
   );
 }
