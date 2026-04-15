@@ -217,7 +217,7 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
   );
 }
 
-const STACK_THRESHOLD = 10;
+const STACK_THRESHOLD = 50;
 
 function StackCell({ hiddenCount, previews, onExpand }: { hiddenCount: number; previews: any[]; onExpand: () => void }) {
   return (
@@ -274,11 +274,9 @@ const MonthGroup = memo(function MonthGroup({ month, monthPhotos, photoIndexMap,
   selecting: boolean;
   onToggleSelect: (id: string) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const hasStack = monthPhotos.length > STACK_THRESHOLD;
-  const visiblePhotos = hasStack && !expanded ? monthPhotos.slice(0, STACK_THRESHOLD - 1) : monthPhotos;
-  const hiddenCount = monthPhotos.length - (STACK_THRESHOLD - 1);
-  const stackPreviews = monthPhotos.slice(STACK_THRESHOLD - 1, STACK_THRESHOLD + 2);
+  const [visibleCount, setVisibleCount] = useState(STACK_THRESHOLD);
+  const hasMore = monthPhotos.length > visibleCount;
+  const visiblePhotos = monthPhotos.slice(0, visibleCount);
 
   return (
     <div className="mb-10" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 600px" }}>
@@ -288,14 +286,6 @@ const MonthGroup = memo(function MonthGroup({ month, monthPhotos, photoIndexMap,
           <h2 className="text-base font-bold text-foreground tracking-tight">{month}</h2>
           <span className="text-xs text-muted-foreground font-normal">({monthPhotos.length})</span>
         </div>
-        {hasStack && (
-          <button
-            onClick={() => setExpanded(e => !e)}
-            className="text-xs text-primary hover:text-primary/80 font-medium transition-colors px-2.5 py-1 rounded-full bg-primary/8 hover:bg-primary/14"
-          >
-            {expanded ? "Show less" : `Show all ${monthPhotos.length}`}
-          </button>
-        )}
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-2">
         {visiblePhotos.map((photo: any) => {
@@ -315,14 +305,17 @@ const MonthGroup = memo(function MonthGroup({ month, monthPhotos, photoIndexMap,
             />
           );
         })}
-        {hasStack && !expanded && (
-          <StackCell
-            hiddenCount={hiddenCount}
-            previews={stackPreviews}
-            onExpand={() => setExpanded(true)}
-          />
-        )}
       </div>
+      {hasMore && (
+        <div className="flex justify-center mt-4">
+          <button
+            onClick={() => setVisibleCount(c => c + STACK_THRESHOLD)}
+            className="px-5 py-2 text-sm font-medium rounded-full border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            Load more ({monthPhotos.length - visibleCount} remaining)
+          </button>
+        </div>
+      )}
     </div>
   );
 });
