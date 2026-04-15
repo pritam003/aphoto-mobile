@@ -242,34 +242,75 @@ export default function LibraryPage() {
               <OnThisDayReel days={memoryDays} todayDow={memoryTodayDow} />
             )}
 
-            {/* Per-month photo grids */}
-            {!debouncedSearch && loadedMonths.map((ym, i) => (
-              <div key={ym} className="mb-2">
-                <div className="flex items-center justify-between mb-1 pt-1">
-                  <div className="flex items-baseline gap-2">
-                    <h2 className="text-base font-bold text-foreground">{formatMonthLabel(ym)}</h2>
-                    <span className="text-xs text-muted-foreground">
-                      {photosByMonth[ym].length.toLocaleString()} photos
-                    </span>
+            {/* Unified month list — each month is expanded (grid) or collapsed (card), in place */}
+            {!debouncedSearch && monthsList.map((m) => {
+              const isLoaded = m.yearMonth in photosByMonth;
+              const isLoading = loadingMonth === m.yearMonth;
+
+              if (isLoaded) {
+                // Expanded: show photo grid with header
+                return (
+                  <div key={m.yearMonth} className="mb-4">
+                    <div className="flex items-center justify-between mb-1 pt-1">
+                      <div className="flex items-baseline gap-2">
+                        <h2 className="text-base font-bold text-foreground">{formatMonthLabel(m.yearMonth)}</h2>
+                        <span className="text-xs text-muted-foreground">
+                          {photosByMonth[m.yearMonth].length.toLocaleString()} photos
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => collapseMonth(m.yearMonth)}
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
+                      >
+                        Show less
+                      </button>
+                    </div>
+                    <PhotoGrid
+                      photos={photosByMonth[m.yearMonth]}
+                      dateField={sortOrder}
+                      onHide={handleHidePhoto}
+                      emptyMessage=""
+                    />
                   </div>
-                  {/* Don't show Show less for the auto-loaded first month if it's the only one */}
-                  {!(i === 0 && loadedMonths.length === 1) && (
-                    <button
-                      onClick={() => collapseMonth(ym)}
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
-                    >
-                      Show less
-                    </button>
-                  )}
+                );
+              }
+
+              // Collapsed: show mosaic card
+              return (
+                <div key={m.yearMonth} className="mb-4">
+                  <button
+                    onClick={() => loadMonth(m.yearMonth)}
+                    disabled={isLoading}
+                    className="group w-full rounded-2xl overflow-hidden border border-border bg-muted/20 hover:border-primary/30 hover:shadow-md transition-all text-left disabled:opacity-70"
+                  >
+                    <div className="grid grid-cols-2 gap-0.5 h-36">
+                      {m.covers.length >= 4 ? (
+                        m.covers.map((src, i) => (
+                          <img key={i} src={src} className="w-full h-full object-cover" />
+                        ))
+                      ) : m.covers.length > 0 ? (
+                        <img src={m.covers[0]} className="col-span-2 w-full h-full object-cover" />
+                      ) : (
+                        <div className="col-span-2 w-full h-full bg-muted flex items-center justify-center">
+                          <ImageIcon className="w-8 h-8 text-muted-foreground/30" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between px-3.5 py-2.5">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{formatMonthLabel(m.yearMonth)}</p>
+                        <p className="text-xs text-muted-foreground">{m.count.toLocaleString()} {m.count === 1 ? "photo" : "photos"}</p>
+                      </div>
+                      {isLoading ? (
+                        <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <span className="text-[11px] font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">Load</span>
+                      )}
+                    </div>
+                  </button>
                 </div>
-                <PhotoGrid
-                  photos={photosByMonth[ym]}
-                  dateField={sortOrder}
-                  onHide={handleHidePhoto}
-                  emptyMessage=""
-                />
-              </div>
-            ))}
+              );
+            })}
 
             {/* Search results */}
             {debouncedSearch && (
@@ -294,58 +335,11 @@ export default function LibraryPage() {
               </div>
             )}
 
-            {/* Unloaded months — shown when not searching */}
-            {!debouncedSearch && unloadedMonths.length > 0 && (
-              <div className="mt-8">
-                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 px-1 mb-4">More to explore</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {unloadedMonths.map(m => (
-                    <button
-                      key={m.yearMonth}
-                      onClick={() => loadMonth(m.yearMonth)}
-                      disabled={loadingMonth === m.yearMonth}
-                      className="group relative rounded-2xl overflow-hidden border border-border bg-muted/20 hover:border-primary/30 hover:shadow-md transition-all text-left disabled:opacity-70"
-                    >
-                      {/* Photo mosaic */}
-                      <div className="grid grid-cols-2 gap-0.5 h-36">
-                        {m.covers.length >= 4 ? (
-                          m.covers.map((src, i) => (
-                            <img key={i} src={src} className="w-full h-full object-cover" />
-                          ))
-                        ) : m.covers.length > 0 ? (
-                          <img src={m.covers[0]} className="col-span-2 w-full h-full object-cover" />
-                        ) : (
-                          <div className="col-span-2 w-full h-full bg-muted flex items-center justify-center">
-                            <ImageIcon className="w-8 h-8 text-muted-foreground/30" />
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Footer */}
-                      <div className="flex items-center justify-between px-3.5 py-2.5">
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">{formatMonthLabel(m.yearMonth)}</p>
-                          <p className="text-xs text-muted-foreground">{m.count.toLocaleString()} {m.count === 1 ? "photo" : "photos"}</p>
-                        </div>
-                        {loadingMonth === m.yearMonth ? (
-                          <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <div className="text-[11px] font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
-                            Load
-                          </div>
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* Unloaded months section removed — now unified above */}
           </>
         )}
       </div>
     </div>
   );
 }
-
-const PAGE_SIZE = 50;
 
