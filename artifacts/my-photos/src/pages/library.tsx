@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { Search, X, ImageIcon } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useListPhotos, getListPhotosQueryKey } from "@workspace/api-client-react";
 import PhotoGrid from "@/components/PhotoGrid";
 import { useQueryClient } from "@tanstack/react-query";
@@ -75,7 +75,7 @@ export default function LibraryPage() {
       .catch(() => setLoadingMonth(null));
   }, []);
 
-  // Merge all loaded months into one sorted array for PhotoGrid (search only)
+  // Merge all loaded months into one sorted array for display
   const allPhotos = useMemo(() => {
     const sorted = Object.keys(photosByMonth).sort((a, b) => b.localeCompare(a));
     return sorted.flatMap(m => photosByMonth[m]);
@@ -87,19 +87,36 @@ export default function LibraryPage() {
     [photosByMonth],
   );
 
-  const collapseMonth = useCallback((yearMonth: string) => {
-    setPhotosByMonth(prev => {
-      const next = { ...prev };
-      delete next[yearMonth];
-      return next;
-    });
-  }, []);
-
-  // Which months are not yet loaded
-  const unloadedMonths = useMemo(
-    () => monthsList.filter(m => !(m.yearMonth in photosByMonth) && m.yearMonth !== loadingMonth),
+  // Next unloaded month to auto-fetch
+  const nextUnloadedMonth = useMemo(
+    () => monthsList.find(m => !(m.yearMonth in photosByMonth) && m.yearMonth !== loadingMonth)?.yearMonth ?? null,
     [monthsList, photosByMonth, loadingMonth],
   );
+
+  // Distinct years from the months index (for scrubber)
+  const yearsList = useMemo(
+    () => [...new Set(monthsList.map(m => m.yearMonth.slice(0, 4)))],
+    [monthsList],
+  );
+
+  // IntersectionObserver sentinel — auto-loads next month when visible
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && nextUnloadedMonth && !loadingMonth) {
+        loadMonth(nextUnloadedMonth);
+      }
+    }, { rootMargin: "400px" });
+    obs.observe(sentinelRef.current);
+    return () => obs.disconnect();
+  }, [nextUnloadedMonth, loadingMonth, loadMonth]);
+
+  // Scroll to a year anchor
+  const scrollToYear = useCallback((year: string) => {
+    const el = document.getElementById(`year-${year}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   // ── Search via existing hook ───────────────────────────────────────────────
   const searchParams = { search: debouncedSearch, trashed: false, hidden: false, orderBy: sortOrder, limit: SEARCH_PAGE_SIZE, offset: searchOffset };
@@ -169,8 +186,6 @@ export default function LibraryPage() {
 
   const isInitialLoading = monthsLoading && Object.keys(photosByMonth).length === 0 && !debouncedSearch;
   const displayPhotos = debouncedSearch ? searchPhotos : allPhotos;
-  // First loaded month is auto-loaded and cannot be collapsed
-  const firstMonth = monthsList[0]?.yearMonth;
 
   return (
     <div
@@ -228,7 +243,22 @@ export default function LibraryPage() {
 
       {showGoogleImport && <GoogleImportModal onClose={() => setShowGoogleImport(false)} />}
 
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="flex-1 overflow-y-auto px-6 py-5 relative">
+        {/* Year scrubber — fixed on right edge, only in non-search mode */}
+        {!debouncedSearch && yearsList.length > 1 && (
+          <div className="fixed right-2 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-1">
+            {yearsList.map(year => (
+              <button
+                key={year}
+                onClick={() => scrollToYear(year)}
+                className="text-[10px] font-semibold text-muted-foreground hover:text-primary transition-colors px-1 py-0.5 rounded hover:bg-primary/10 leading-none"
+              >
+                {year}
+              </button>
+            ))}
+          </div>
+        )}
+
         {isInitialLoading || (debouncedSearch && searchLoading && searchOffset === 0) ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1">
             {Array.from({ length: 18 }).map((_, i) => (
@@ -242,103 +272,37 @@ export default function LibraryPage() {
               <OnThisDayReel days={memoryDays} todayDow={memoryTodayDow} />
             )}
 
-            {/* Month cards grid — 3 per row; clicking a tile expands photos below that row */}
+            {/* Continuous photo stream grouped by month with year anchors */}
             {!debouncedSearch && (() => {
-              // Chunk monthsList into rows of 3 (matches lg:grid-cols-3)
-              const rows: typeof monthsList[] = [];
-              for (let i = 0; i < monthsList.length; i += 3) {
-                rows.push(monthsList.slice(i, i + 3));
-              }
-              return rows.map((row, rowIdx) => {
-                const expandedInRow = row.filter(m => m.yearMonth in photosByMonth);
+              // Track which years we've already emitted an anchor for
+              const seenYears = new Set<string>();
+              return loadedMonths.map(yearMonth => {
+                const year = yearMonth.slice(0, 4);
+                const isFirstOfYear = !seenYears.has(year);
+                if (isFirstOfYear) seenYears.add(year);
+                const photos = photosByMonth[yearMonth] ?? [];
                 return (
-                  <React.Fragment key={rowIdx}>
-                    {/* Card row */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-                      {row.map((m) => {
-                        const isLoaded = m.yearMonth in photosByMonth;
-                        const isLoading = loadingMonth === m.yearMonth;
-                        return (
-                          <div
-                            key={m.yearMonth}
-                            className={`rounded-2xl overflow-hidden border bg-card transition-all ${isLoaded ? 'border-primary/40 ring-2 ring-primary/20' : 'border-border'}`}
-                          >
-                            {/* Hero cover image */}
-                            <div className="relative h-40 bg-muted">
-                              {m.covers.length > 0 ? (
-                                <img src={m.covers[0]} className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center">
-                                  <ImageIcon className="w-10 h-10 text-muted-foreground/30" />
-                                </div>
-                              )}
-                              {/* Month label overlay */}
-                              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent px-3 py-2">
-                                <p className="text-sm font-bold text-white">{formatMonthLabel(m.yearMonth)}</p>
-                                <p className="text-[11px] text-white/70">{m.count.toLocaleString()} {m.count === 1 ? "photo" : "photos"}</p>
-                              </div>
-                            </div>
-                            {/* Thumbnail strip — covers[1..5] + see more tile */}
-                            <div className="flex gap-1 p-1.5">
-                              {m.covers.slice(1, 6).map((src, i) => (
-                                <div key={i} className="flex-1 aspect-square rounded-md overflow-hidden bg-muted">
-                                  <img src={src} className="w-full h-full object-cover" />
-                                </div>
-                              ))}
-                              {/* See more tile */}
-                              <button
-                                onClick={() => isLoaded ? collapseMonth(m.yearMonth) : loadMonth(m.yearMonth)}
-                                disabled={isLoading}
-                                className="flex-1 aspect-square rounded-md overflow-hidden bg-muted/60 border border-border hover:bg-primary/10 hover:border-primary/40 transition-colors flex flex-col items-center justify-center gap-0.5 disabled:opacity-50"
-                              >
-                                {isLoading ? (
-                                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                                ) : isLoaded ? (
-                                  <>
-                                    <span className="text-base leading-none">↑</span>
-                                    <span className="text-[9px] font-medium text-muted-foreground">Less</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span className="text-sm font-bold text-primary">+{Math.max(0, m.count - 5)}</span>
-                                    <span className="text-[9px] font-medium text-muted-foreground">more</span>
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {/* Expanded photo grids for any clicked tile in this row */}
-                    {expandedInRow.map(m => (
-                      <div key={m.yearMonth} className="mb-6">
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex items-baseline gap-2">
-                            <h2 className="text-base font-bold text-foreground">{formatMonthLabel(m.yearMonth)}</h2>
-                            <span className="text-xs text-muted-foreground">
-                              {photosByMonth[m.yearMonth].length.toLocaleString()} photos
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => collapseMonth(m.yearMonth)}
-                            className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
-                          >
-                            Show less
-                          </button>
-                        </div>
-                        <PhotoGrid
-                          photos={photosByMonth[m.yearMonth]}
-                          dateField={sortOrder}
-                          onHide={handleHidePhoto}
-                          emptyMessage=""
-                        />
-                      </div>
-                    ))}
-                  </React.Fragment>
+                  <div key={yearMonth}>
+                    {isFirstOfYear && <div id={`year-${year}`} className="pt-1" />}
+                    <PhotoGrid
+                      photos={photos}
+                      dateField={sortOrder}
+                      onHide={handleHidePhoto}
+                      emptyMessage=""
+                    />
+                  </div>
                 );
               });
             })()}
+
+            {/* Sentinel — triggers loading next month when scrolled near */}
+            {!debouncedSearch && (
+              <div ref={sentinelRef} className="h-16 flex items-center justify-center">
+                {loadingMonth && (
+                  <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                )}
+              </div>
+            )}
 
             {/* Search results */}
             {debouncedSearch && (
@@ -362,8 +326,6 @@ export default function LibraryPage() {
                 </button>
               </div>
             )}
-
-            {/* Unloaded months section removed — now unified above */}
           </>
         )}
       </div>
