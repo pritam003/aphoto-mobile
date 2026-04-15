@@ -254,7 +254,6 @@ function DayTile({ day, isToday, onClick }: { day: DayGroup; isToday: boolean; o
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, [photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
-  }, [photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const photo = photos[idx];
   const year = getYear(photo);
