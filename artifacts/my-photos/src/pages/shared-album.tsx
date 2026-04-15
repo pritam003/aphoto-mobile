@@ -89,6 +89,11 @@ export default function SharedAlbumPage() {
   const [googleError, setGoogleError] = useState("");
   const googleBtnRef = useRef<HTMLDivElement>(null);
 
+  // Email pre-check (before Google OAuth)
+  const [emailInput, setEmailInput] = useState("");
+  const [emailCheckState, setEmailCheckState] = useState<"idle" | "checking" | "allowed" | "denied">("idle");
+  const [emailCheckError, setEmailCheckError] = useState("");
+
   // ── Album data ─────────────────────────────────────────────────────────────
   const [data, setData] = useState<SharedAlbumData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -210,6 +215,30 @@ export default function SharedAlbumPage() {
   };
 
   // ── Google sign-in gate ────────────────────────────────────────────────────
+  const checkEmail = async () => {
+    const trimmed = emailInput.trim().toLowerCase();
+    if (!trimmed) { setEmailCheckError("Please enter your email address."); return; }
+    setEmailCheckState("checking");
+    setEmailCheckError("");
+    try {
+      const res = await fetch(`${API_BASE}/shared/albums/${token}/check-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: trimmed }),
+      });
+      if (res.ok) {
+        setEmailCheckState("allowed");
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setEmailCheckState("denied");
+        setEmailCheckError(body.error ?? "This email does not have access.");
+      }
+    } catch {
+      setEmailCheckState("denied");
+      setEmailCheckError("Something went wrong. Please try again.");
+    }
+  };
+
   const handleGoogleCredential = useCallback(async (credential: string) => {
     setGoogleVerifying(true);
     setGoogleError("");
@@ -236,9 +265,9 @@ export default function SharedAlbumPage() {
     }
   }, [token, lsKey]);
 
-  // Load Google Sign-In button when meta says email + no token yet
+  // Load Google Sign-In button when meta says email + no token yet + email pre-checked
   useEffect(() => {
-    if (!meta || meta.shareType !== "email" || !meta.googleClientId || emailToken) return;
+    if (!meta || meta.shareType !== "email" || !meta.googleClientId || emailToken || emailCheckState !== "allowed") return;
     const renderBtn = () => {
       const g = (window as any).google; // eslint-disable-line @typescript-eslint/no-explicit-any
       if (!g || !googleBtnRef.current) return;
@@ -246,6 +275,7 @@ export default function SharedAlbumPage() {
         client_id: meta.googleClientId,
         callback: (r: { credential: string }) => handleGoogleCredential(r.credential),
         auto_select: false,
+        login_hint: emailInput.trim().toLowerCase(),
       });
       g.accounts.id.renderButton(googleBtnRef.current, {
         theme: "outline", size: "large", text: "signin_with", shape: "rectangular",
@@ -260,7 +290,7 @@ export default function SharedAlbumPage() {
       s.onload = renderBtn;
       document.head.appendChild(s);
     }
-  }, [meta?.shareType, meta?.googleClientId, emailToken, handleGoogleCredential]);
+  }, [meta?.shareType, meta?.googleClientId, emailToken, emailCheckState, emailInput, handleGoogleCredential]);
 
   // ── Keyboard nav ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -348,28 +378,69 @@ export default function SharedAlbumPage() {
             <h1 className="text-xl font-semibold text-foreground">Sign in to access</h1>
             <p className="text-sm text-muted-foreground text-center">
               <span className="font-medium text-foreground">{meta.albumName || meta.shareName}</span>
-              {" "}is shared with specific Google accounts. Sign in to verify your access.
+              {" "}is shared with specific Google accounts.
             </p>
           </div>
 
-          <div className="flex flex-col items-center gap-4">
-            {googleVerifying ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin inline-block" />
-                Verifying…
+          {emailCheckState !== "allowed" ? (
+            /* ── Step 1: Email pre-check ─────────────────────────────────── */
+            <div className="flex flex-col gap-3">
+              <input
+                type="email"
+                value={emailInput}
+                onChange={e => { setEmailInput(e.target.value); setEmailCheckError(""); setEmailCheckState("idle"); }}
+                onKeyDown={e => e.key === "Enter" && checkEmail()}
+                placeholder="your@gmail.com"
+                autoFocus
+                className="w-full px-4 py-3 rounded-xl border border-border bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 text-sm"
+              />
+              {emailCheckError && (
+                <p className="text-xs text-destructive text-center">{emailCheckError}</p>
+              )}
+              <button
+                onClick={checkEmail}
+                disabled={emailCheckState === "checking"}
+                className="w-full py-3 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {emailCheckState === "checking" ? (
+                  <><span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" /> Checking…</>
+                ) : "Check access"}
+              </button>
+            </div>
+          ) : (
+            /* ── Step 2: Email verified — show Google Sign-In ─────────────── */
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex items-center gap-2 text-sm text-green-600 bg-green-500/10 px-4 py-2 rounded-full">
+                <Check className="w-4 h-4" />
+                <span><span className="font-medium">{emailInput.trim().toLowerCase()}</span> has access</span>
               </div>
-            ) : (
-              <div ref={googleBtnRef} className="flex justify-center" />
-            )}
-            {googleError && (
-              <p className="text-xs text-destructive text-center">{googleError}</p>
-            )}
-            {!meta.googleClientId && (
-              <p className="text-xs text-muted-foreground text-center">
-                Google sign-in is not configured on this server.
+              <p className="text-sm text-muted-foreground text-center">
+                Sign in with Google to verify it's you.
               </p>
-            )}
-          </div>
+              {googleVerifying ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin inline-block" />
+                  Verifying…
+                </div>
+              ) : (
+                <div ref={googleBtnRef} className="flex justify-center" />
+              )}
+              {googleError && (
+                <p className="text-xs text-destructive text-center">{googleError}</p>
+              )}
+              <button
+                onClick={() => { setEmailCheckState("idle"); setEmailInput(""); setGoogleError(""); }}
+                className="text-xs text-muted-foreground hover:text-foreground underline"
+              >
+                Use a different email
+              </button>
+              {!meta.googleClientId && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Google sign-in is not configured on this server.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );

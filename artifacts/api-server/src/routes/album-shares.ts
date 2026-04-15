@@ -229,6 +229,30 @@ router.get("/shared/albums/:token/meta", async (req, res) => {
   });
 });
 
+// ── Public: check if an email is on the allowed list (no auth required) ──────
+router.post("/shared/albums/:token/check-email", async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email) return res.status(400).json({ error: "email required" });
+
+  const [share] = await db
+    .select()
+    .from(albumSharesTable)
+    .where(and(eq(albumSharesTable.token, req.params.token), isNull(albumSharesTable.revokedAt)));
+  if (!share) return res.status(404).json({ error: "Share link not found" });
+  if ((share.shareType ?? "code") !== "email") {
+    return res.status(400).json({ error: "This share link does not use email access" });
+  }
+
+  const allowed: string[] = JSON.parse(share.allowedEmails || "[]");
+  if (!allowed.map((e: string) => e.toLowerCase()).includes(email.toLowerCase().trim())) {
+    return res.status(403).json({
+      error: "This email address does not have access to this album",
+    });
+  }
+
+  res.json({ allowed: true });
+});
+
 // ── Public: verify Google credential for email-based share access ────────────
 router.post("/shared/albums/:token/google-verify", async (req, res) => {
   const { credential } = req.body as { credential?: string };
