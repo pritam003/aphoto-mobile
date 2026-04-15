@@ -215,17 +215,19 @@ function DayTile({ day, isToday, onClick }: { day: DayGroup; isToday: boolean; o
   const [fadingOut, setFadingOut] = useState(false);
   const rafRef = useRef<number | null>(null);
 
+  const staggerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (photos.length <= 1) return;
-    const timer = setInterval(() => {
+
+    let timer: ReturnType<typeof setInterval>;
+
+    const advance = () => {
       setIdx(cur => {
         const next = (cur + 1) % photos.length;
         const prevSrc = photos[cur].thumbnailUrl || photos[cur].url;
-        // Step 1: mount prev image at full opacity (fadingOut=false)
         setPrevUrl(prevSrc);
         setFadingOut(false);
-        // Step 2: after two rAF ticks the browser has painted it at opacity:1,
-        //         now trigger the CSS transition to opacity:0
         rafRef.current = requestAnimationFrame(() => {
           rafRef.current = requestAnimationFrame(() => {
             setFadingOut(true);
@@ -237,11 +239,21 @@ function DayTile({ day, isToday, onClick }: { day: DayGroup; isToday: boolean; o
         });
         return next;
       });
-    }, TILE_MS);
+    };
+
+    // Random delay 0–TILE_MS so tiles don't all flip at the same moment
+    const randomDelay = Math.random() * TILE_MS;
+    staggerRef.current = setTimeout(() => {
+      advance();
+      timer = setInterval(advance, TILE_MS);
+    }, randomDelay);
+
     return () => {
+      if (staggerRef.current) clearTimeout(staggerRef.current);
       clearInterval(timer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
+  }, [photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
   }, [photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const photo = photos[idx];
