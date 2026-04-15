@@ -47,6 +47,45 @@ function requireAuth(req: any, res: any, next: any) {
 
 router.use(requireAuth);
 
+// "On this day" — photos taken on the same month+day in prior years
+router.get("/photos/on-this-day", async (req: any, res) => {
+  const userId = req.currentUser.id;
+  const now = new Date();
+  const month = now.getMonth() + 1; // 1-based
+  const day = now.getDate();
+  const thisYear = now.getFullYear();
+  try {
+    const rows = await db.execute(
+      sql`SELECT * FROM photos
+          WHERE user_id = ${userId}
+            AND trashed = false
+            AND hidden = false
+            AND EXTRACT(MONTH FROM COALESCE(taken_at, uploaded_at)) = ${month}
+            AND EXTRACT(DAY   FROM COALESCE(taken_at, uploaded_at)) = ${day}
+            AND EXTRACT(YEAR  FROM COALESCE(taken_at, uploaded_at)) < ${thisYear}
+          ORDER BY COALESCE(taken_at, uploaded_at) DESC
+          LIMIT 50`,
+    );
+    const photos = ((rows as any).rows ?? []).map((photo: any) => {
+      const url = generateSasUrl(photo.blob_name);
+      return {
+        id: photo.id,
+        filename: photo.filename,
+        contentType: photo.content_type,
+        size: photo.size,
+        url,
+        thumbnailUrl: url,
+        favorite: photo.favorite,
+        uploadedAt: photo.uploaded_at,
+        takenAt: photo.taken_at,
+      };
+    });
+    res.json({ photos });
+  } catch {
+    res.json({ photos: [] });
+  }
+});
+
 router.get("/photos/stats", async (req: any, res) => {
   const userId = req.currentUser.id;
   // Single query replaces 4 separate COUNT queries — saves 3× round-trip latency

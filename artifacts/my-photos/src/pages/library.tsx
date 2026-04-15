@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Search, X, Sparkles } from "lucide-react";
 import { useListPhotos, getListPhotosQueryKey } from "@workspace/api-client-react";
 import PhotoGrid from "@/components/PhotoGrid";
@@ -20,20 +20,20 @@ export default function LibraryPage() {
   const [sortOrder, setSortOrder] = useState<"taken" | "uploaded">("taken");
   const [showGoogleImport, setShowGoogleImport] = useState(false);
   const [dismissedOnThisDay, setDismissedOnThisDay] = useState(false);
+  const [onThisDayPhotos, setOnThisDayPhotos] = useState<any[]>([]);
   const queryClient = useQueryClient();
 
-  // "On this day" — photos from the same calendar day in prior years
-  const onThisDayPhotos = useMemo(() => {
-    if (!allPhotos.length) return [];
-    const now = new Date();
-    const todayMonth = now.getMonth();
-    const todayDay = now.getDate();
-    const thisYear = now.getFullYear();
-    return allPhotos.filter(p => {
-      const d = new Date(p.takenAt ?? p.uploadedAt);
-      return d.getMonth() === todayMonth && d.getDate() === todayDay && d.getFullYear() < thisYear;
-    });
-  }, [allPhotos]);
+  // Fetch "on this day" from dedicated API route — not limited to paginated allPhotos
+  useEffect(() => {
+    fetch(`${API_BASE}/photos/on-this-day`, { credentials: "include" })
+      .then(r => r.ok ? r.json() : { photos: [] })
+      .then(d => {
+        const rows: any[] = d.photos ?? [];
+        // Attach SAS thumbnail URLs if needed (rows from raw SQL won't have them)
+        setOnThisDayPhotos(rows);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSearchChange = (val: string) => {
     setSearch(val);
