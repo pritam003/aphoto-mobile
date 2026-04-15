@@ -5,7 +5,6 @@ import path from "path";
 import { db, photosTable, albumPhotosTable, albumsTable, shareLinksTable } from "@workspace/db";
 import { eq, and, desc, ilike, or, sql } from "drizzle-orm";
 import { uploadBlob, deleteBlob, generateSasUrl, generateUploadSasUrl, downloadBlob } from "../lib/azure-storage.js";
-import { processFacesForPhoto } from "../lib/face-recognition.js";
 import exifr from "exifr";
 
 /** Parse an EXIF date value which may be a Date object or the non-standard "YYYY:MM:DD HH:MM:SS" string. */
@@ -336,7 +335,6 @@ router.post("/photos/register", async (req: any, res) => {
           await db.update(photosTable).set({ takenAt: extracted }).where(eq(photosTable.id, photo.id));
         }
       }
-      await processFacesForPhoto(photo.id, userId, blobName, buf, contentType);
     })
     .catch(() => {});
 });
@@ -389,8 +387,6 @@ router.post("/photos", upload.single("file"), async (req: any, res) => {
     albums: albumId ? [albumId] : [],
   });
 
-  // Async face detection (fire-and-forget)
-  processFacesForPhoto(photo.id, userId, blobName, req.file.buffer, req.file.mimetype).catch(() => {});
 });
 
 router.get("/photos/:id/url", async (req: any, res) => {

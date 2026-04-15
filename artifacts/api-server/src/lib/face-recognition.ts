@@ -17,9 +17,9 @@ import { createCanvas, loadImage, Image } from "canvas";
 // Use the native Node.js TensorFlow backend for GPU/CPU acceleration
 import "@tensorflow/tfjs-node";
 import * as faceapi from "@vladmandic/face-api";
-import { db, peopleTable, photoFacesTable } from "@workspace/db";
-import { eq, and, isNotNull } from "drizzle-orm";
-import { uploadBlob } from "./azure-storage.js";
+import { db, peopleTable, photoFacesTable, photosTable } from "@workspace/db";
+import { eq, and, isNotNull, sql } from "drizzle-orm";
+import { uploadBlob, downloadBlob } from "./azure-storage.js";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -59,22 +59,36 @@ interface FaceResult {
   imageHeight: number;
 }
 
+/** Max dimension used for face detection — keeps CPU/memory low while preserving accuracy. */
+const MAX_DETECT_DIM = 800;
+
 async function detectFacesInBuffer(buffer: Buffer): Promise<FaceResult[]> {
-  const img = await loadImage(buffer as any);
-  const canvas = createCanvas(img.width, img.height);
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(img as any, 0, 0);
+  const orig = await loadImage(buffer as any);
+
+  // Downscale to MAX_DETECT_DIM for detection (thumbnail approach)
+  const scale = Math.min(1, MAX_DETECT_DIM / Math.max(orig.width, orig.height));
+  const w = Math.round(orig.width * scale);
+  const h = Math.round(orig.height * scale);
+
+  const canvas = createCanvas(w, h);
+  canvas.getContext("2d").drawImage(orig as any, 0, 0, w, h);
 
   const detections = await faceapi
     .detectAllFaces(canvas as any, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
     .withFaceLandmarks()
     .withFaceDescriptors();
 
+  // Scale bounding boxes back to original image coordinate space
   return detections.map((d) => ({
     descriptor: d.descriptor,
-    box: d.detection.box,
-    imageWidth: img.width,
-    imageHeight: img.height,
+    box: {
+      x: d.detection.box.x / scale,
+      y: d.detection.box.y / scale,
+      width: d.detection.box.width / scale,
+      height: d.detection.box.height / scale,
+    },
+    imageWidth: orig.width,
+    imageHeight: orig.height,
   }));
 }
 
@@ -175,8 +189,8 @@ async function findOrCreatePerson(
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /**
- * Fire-and-forget: detect faces in the image buffer and cluster them into people.
- * Safe to call without awaiting — all errors are caught internally.
+ * Detect and cluster faces for a single photo given its buffer.
+ * Called by the background job — not during upload.
  */
 export async function processFacesForPhoto(
   photoId: string,
@@ -213,5 +227,51 @@ export async function processFacesForPhoto(
     }
   } catch (err) {
     console.error("[face-recognition] processFacesForPhoto error:", err);
+  }
+}
+
+// ── Background hourly job ─────────────────────────────────────────────────────
+
+let _jobRunning = false;
+
+/**
+ * Scans all unprocessed images (no photo_faces entry) and runs face detection.
+ * Safe to call repeatedly — skips already-processed photos and is non-reentrant.
+ */
+export async function runFaceRecognitionJob(): Promise<void> {
+  if (_jobRunning) return;
+  _jobRunning = true;
+  try {
+    // Find image photos that have never been through face detection
+    const rows = await db.execute(
+      sql`SELECT p.id, p.user_id, p.blob_name, p.content_type
+          FROM photos p
+          WHERE p.trashed = false
+            AND p.content_type NOT LIKE 'video/%'
+            AND NOT EXISTS (
+              SELECT 1 FROM photo_faces pf WHERE pf.photo_id = p.id
+            )
+          ORDER BY p.uploaded_at DESC
+          LIMIT 200`,
+    );
+    const photos = (rows as any).rows ?? [];
+    if (photos.length === 0) return;
+
+    console.log(`[face-recognition] job: processing ${photos.length} unprocessed photo(s)`);
+    await ensureModels();
+
+    for (const photo of photos) {
+      try {
+        const buf = await downloadBlob(photo.blob_name);
+        await processFacesForPhoto(photo.id, photo.user_id, photo.blob_name, buf, photo.content_type);
+      } catch (err) {
+        console.error(`[face-recognition] job: error on ${photo.id}:`, err);
+      }
+    }
+    console.log(`[face-recognition] job: done`);
+  } catch (err) {
+    console.error("[face-recognition] job error:", err);
+  } finally {
+    _jobRunning = false;
   }
 }
