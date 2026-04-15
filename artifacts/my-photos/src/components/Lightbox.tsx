@@ -160,7 +160,7 @@ export default function Lightbox({ photos, initialIndex, onClose, onPhotoTrash }
           />
         ) : (
           <img
-            src={photo.url}
+            src={photo.previewUrl || photo.url}
             alt={photo.filename}
             className="max-h-full max-w-full object-contain"
             data-testid="lightbox-image"

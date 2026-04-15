@@ -12,6 +12,8 @@ export const photosTable = pgTable("photos", {
   size: bigint("size", { mode: "number" }).notNull(),
   width: integer("width"),
   height: integer("height"),
+  thumbBlobName: text("thumb_blob_name"),   // 600×600 JPEG thumbnail (grid view)
+  previewBlobName: text("preview_blob_name"), // 1920px wide JPEG (lightbox view)
   favorite: boolean("favorite").default(false).notNull(),
   trashed: boolean("trashed").default(false).notNull(),
   trashedAt: timestamp("trashed_at"),

@@ -5,6 +5,8 @@ import path from "path";
 import { db, photosTable, albumPhotosTable, albumsTable, shareLinksTable } from "@workspace/db";
 import { eq, and, desc, ilike, or, sql } from "drizzle-orm";
 import { uploadBlob, deleteBlob, generateSasUrl, generateUploadSasUrl, downloadBlob } from "../lib/azure-storage.js";
+import { generateThumbnails } from "../lib/thumbnails.js";
+import { cacheGet, cacheSet, cacheDel, cacheDelPattern } from "../lib/cache.js";
 import exifr from "exifr";
 
 /** Parse an EXIF date value which may be a Date object or the non-standard "YYYY:MM:DD HH:MM:SS" string. */
@@ -50,6 +52,8 @@ router.use(requireAuth);
 // "On this day" — photos taken on the same month+day in prior years
 router.get("/photos/on-this-day", async (req: any, res) => {
   const userId = req.currentUser.id;
+  const cachedOtd = await cacheGet(`on-this-day:${userId}`);
+  if (cachedOtd) return res.json(JSON.parse(cachedOtd));
   const now = new Date();
   const thisYear = now.getFullYear();
   const todayDow = now.getDay(); // 0=Sun … 6=Sat
@@ -95,6 +99,7 @@ router.get("/photos/on-this-day", async (req: any, res) => {
         days.push({ dow: d, dayName: DOW_NAMES[d], photos: byDow[d] });
       }
     }
+    await cacheSet(`on-this-day:${userId}`, JSON.stringify({ days, todayDow }), 3600);
     res.json({ days, todayDow });
   } catch {
     res.json({ days: [], todayDow: now.getDay() });
@@ -103,6 +108,8 @@ router.get("/photos/on-this-day", async (req: any, res) => {
 
 router.get("/photos/stats", async (req: any, res) => {
   const userId = req.currentUser.id;
+  const cached = await cacheGet(`stats:${userId}`);
+  if (cached) return res.json(JSON.parse(cached));
   // Single query replaces 4 separate COUNT queries — saves 3× round-trip latency
   const [statsRow, albumCount] = await Promise.all([
     db.execute(
@@ -118,14 +125,16 @@ router.get("/photos/stats", async (req: any, res) => {
       .catch(() => ({ rows: [{ cnt: 0 }] })),
   ]);
   const r = (statsRow as any).rows?.[0] ?? {};
-  res.json({
+  const result = {
     total: Number(r.total ?? 0),
     favorites: Number(r.favorites ?? 0),
     trashed: Number(r.trashed ?? 0),
     hidden: Number(r.hidden ?? 0),
     albums: Number((albumCount as any).rows?.[0]?.cnt ?? 0),
     totalSize: Number(r.total_size ?? 0),
-  });
+  };
+  await cacheSet(`stats:${userId}`, JSON.stringify(result), 60);
+  res.json(result);
 });
 
 // Returns distinct months that have photos, with counts
@@ -252,6 +261,8 @@ router.get("/photos", async (req: any, res) => {
 
   const photosWithUrls = photos.map((photo: any) => {
       const url = generateSasUrl(photo.blobName);
+      const thumbnailUrl = photo.thumbBlobName ? generateSasUrl(photo.thumbBlobName) : url;
+      const previewUrl = photo.previewBlobName ? generateSasUrl(photo.previewBlobName) : url;
       return {
         id: photo.id,
         filename: photo.filename,
@@ -261,7 +272,8 @@ router.get("/photos", async (req: any, res) => {
         width: photo.width,
         height: photo.height,
         url,
-        thumbnailUrl: url,
+        thumbnailUrl,
+        previewUrl,
         favorite: photo.favorite,
         trashed: photo.trashed,
         trashedAt: photo.trashedAt,
@@ -323,10 +335,10 @@ router.post("/photos/register", async (req: any, res) => {
     }
   }
 
-  const url = generateSasUrl(blobName);
-  res.status(201).json({ ...photo, url, thumbnailUrl: url, albums: albumId ? [albumId] : [] });
+  const regUrl = generateSasUrl(blobName);
+  res.status(201).json({ ...photo, url: regUrl, thumbnailUrl: regUrl, previewUrl: regUrl, albums: albumId ? [albumId] : [] });
 
-  // Async EXIF backfill + face detection (fire-and-forget)
+  // Async EXIF backfill + thumbnail generation (fire-and-forget)
   downloadBlob(blobName)
     .then(async (buf) => {
       if (!takenAt && contentType.startsWith("image/")) {
@@ -335,6 +347,13 @@ router.post("/photos/register", async (req: any, res) => {
           await db.update(photosTable).set({ takenAt: extracted }).where(eq(photosTable.id, photo.id));
         }
       }
+      const thumbs = await generateThumbnails(buf, blobName, contentType);
+      if (thumbs) {
+        await db.update(photosTable)
+          .set({ thumbBlobName: thumbs.thumbBlobName, previewBlobName: thumbs.previewBlobName })
+          .where(eq(photosTable.id, photo.id));
+      }
+      await cacheDelPattern(`stats:${userId}`);
     })
     .catch(() => {});
 });
@@ -351,9 +370,12 @@ router.post("/photos", upload.single("file"), async (req: any, res) => {
     ? `${userId}/${albumId}/${randomUUID()}${ext}`
     : `${userId}/${randomUUID()}${ext}`;
 
-  await uploadBlob(blobName, req.file.buffer, req.file.mimetype);
+  const [takenAt, thumbs] = await Promise.all([
+    extractTakenAt(req.file.buffer, req.file.mimetype),
+    generateThumbnails(req.file.buffer, blobName, req.file.mimetype),
+  ]);
 
-  const takenAt = await extractTakenAt(req.file.buffer, req.file.mimetype);
+  await uploadBlob(blobName, req.file.buffer, req.file.mimetype);
 
   const [photo] = await db
     .insert(photosTable)
@@ -361,6 +383,8 @@ router.post("/photos", upload.single("file"), async (req: any, res) => {
       userId,
       filename: req.file.originalname,
       blobName,
+      thumbBlobName: thumbs?.thumbBlobName ?? null,
+      previewBlobName: thumbs?.previewBlobName ?? null,
       description: req.body.description || null,
       contentType: req.file.mimetype,
       size: req.file.size,
@@ -380,10 +404,15 @@ router.post("/photos", upload.single("file"), async (req: any, res) => {
   }
 
   const url = generateSasUrl(blobName);
+  const thumbnailUrl = thumbs?.thumbBlobName ? generateSasUrl(thumbs.thumbBlobName) : url;
+  const previewUrl = thumbs?.previewBlobName ? generateSasUrl(thumbs.previewBlobName) : url;
+
+  await cacheDelPattern(`stats:${userId}`);
   res.status(201).json({
     ...photo,
     url,
-    thumbnailUrl: url,
+    thumbnailUrl,
+    previewUrl,
     albums: albumId ? [albumId] : [],
   });
 
@@ -416,6 +445,7 @@ router.get("/photos/:id", async (req: any, res) => {
 
 router.patch("/photos/:id/favorite", async (req: any, res) => {
   const userId = req.currentUser.id;
+  await cacheDel(`stats:${userId}`);
   const { favorite } = req.body as { favorite: boolean };
 
   const [photo] = await db
@@ -432,6 +462,7 @@ router.patch("/photos/:id/favorite", async (req: any, res) => {
 
 router.patch("/photos/:id/trash", async (req: any, res) => {
   const userId = req.currentUser.id;
+  await cacheDel(`stats:${userId}`);
   const { trashed } = req.body as { trashed: boolean };
 
   const [photo] = await db
