@@ -120,12 +120,10 @@ router.get("/shared/albums/:token", async (req, res) => {
     .innerJoin(photosTable, eq(photosTable.id, albumPhotosTable.photoId))
     .where(eq(albumPhotosTable.albumId, album.id));
 
-  const apiBase = process.env.API_URL || `${req.protocol}://${req.get("host")}`;
-  const proxyBase = `${apiBase}/api/shared-blob/${share.token}`;
   const photos = rows.map(r => ({
     ...r.photo,
-    url: `${proxyBase}/${r.photo.blobName}`,
-    thumbnailUrl: `${proxyBase}/${r.photo.blobName}`,
+    url: generateSasUrl(r.photo.blobName, 3600),
+    thumbnailUrl: generateSasUrl(r.photo.blobName, 3600),
   }));
 
   res.json({ album: { id: album.id, name: album.name, description: album.description }, photos, permission: share.permission });
@@ -161,12 +159,10 @@ router.post("/shared/albums/:token/photos", upload.single("file"), async (req: a
 
   await db.insert(albumPhotosTable).values({ albumId: share.albumId, photoId: photo.id });
 
-  const apiBase = process.env.API_URL || `${req.protocol}://${(req as any).get("host")}`;
-  const proxyBase = `${apiBase}/api/shared-blob/${share.token}`;
   res.status(201).json({
     ...photo,
-    url: `${proxyBase}/${blobName}`,
-    thumbnailUrl: `${proxyBase}/${blobName}`,
+    url: generateSasUrl(blobName, 3600),
+    thumbnailUrl: generateSasUrl(blobName, 3600),
   });
 });
 

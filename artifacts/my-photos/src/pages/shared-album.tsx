@@ -286,7 +286,6 @@ export default function SharedAlbumPage() {
           )}
           {isVideo(lightbox) ? (
             <video
-              key={lightbox.id}
               src={lightbox.url}
               className="max-h-[90vh] max-w-[90vw] rounded-lg shadow-2xl"
               controls
@@ -295,7 +294,6 @@ export default function SharedAlbumPage() {
             />
           ) : (
             <img
-              key={lightbox.id}
               src={lightbox.url}
               alt={lightbox.filename}
               className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl"
