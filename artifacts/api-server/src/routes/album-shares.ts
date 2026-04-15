@@ -4,7 +4,8 @@ import multer from "multer";
 import { randomUUID } from "crypto";
 import { db, albumsTable, albumPhotosTable, photosTable, albumSharesTable } from "@workspace/db";
 import { eq, and, isNull } from "drizzle-orm";
-import { generateSasUrl, uploadBlob } from "../lib/azure-storage.js";
+import { generateSasUrl, uploadBlob, downloadBlob } from "../lib/azure-storage.js";
+import archiver from "archiver";
 import exifr from "exifr";
 
 const router = Router();
@@ -122,8 +123,8 @@ router.get("/shared/albums/:token", async (req, res) => {
 
   const photos = rows.map(r => ({
     ...r.photo,
-    url: generateSasUrl(r.photo.blobName, 3600),
-    thumbnailUrl: generateSasUrl(r.photo.blobName, 3600),
+    url: generateSasUrl(r.photo.blobName),
+    thumbnailUrl: generateSasUrl(r.photo.blobName),
   }));
 
   res.json({ album: { id: album.id, name: album.name, description: album.description }, photos, permission: share.permission });
@@ -161,9 +162,61 @@ router.post("/shared/albums/:token/photos", upload.single("file"), async (req: a
 
   res.status(201).json({
     ...photo,
-    url: generateSasUrl(blobName, 3600),
-    thumbnailUrl: generateSasUrl(blobName, 3600),
+    url: generateSasUrl(blobName),
+    thumbnailUrl: generateSasUrl(blobName),
   });
+});
+
+// ── Public: download selected photos as a ZIP ─────────────────────────────
+router.post("/shared/albums/:token/download-zip", async (req, res) => {
+  const [share] = await db
+    .select()
+    .from(albumSharesTable)
+    .where(and(eq(albumSharesTable.token, req.params.token), isNull(albumSharesTable.revokedAt)));
+  if (!share) return res.status(404).json({ error: "Share link not found or revoked" });
+
+  const [album] = await db.select().from(albumsTable).where(eq(albumsTable.id, share.albumId));
+  if (!album) return res.status(404).json({ error: "Album not found" });
+
+  const { photoIds } = req.body as { photoIds?: string[] };
+
+  let rows = await db
+    .select({ photo: photosTable })
+    .from(albumPhotosTable)
+    .innerJoin(photosTable, eq(photosTable.id, albumPhotosTable.photoId))
+    .where(eq(albumPhotosTable.albumId, album.id));
+
+  if (photoIds && photoIds.length > 0) {
+    rows = rows.filter(r => photoIds.includes(r.photo.id));
+  }
+
+  if (rows.length === 0) return res.status(400).json({ error: "No photos to download" });
+
+  const safeName = album.name.replace(/[^\w\s-]/g, "").trim() || "album";
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", `attachment; filename="${safeName}.zip"`);
+  res.setHeader("Cache-Control", "no-store");
+
+  const archive = archiver("zip", { zlib: { level: 0 } });
+  archive.on("error", () => res.end());
+  archive.pipe(res);
+
+  // Track used filenames to avoid collisions
+  const used = new Map<string, number>();
+  for (const { photo } of rows) {
+    try {
+      const buf = await downloadBlob(photo.blobName);
+      const base = photo.filename;
+      const count = used.get(base) ?? 0;
+      used.set(base, count + 1);
+      const name = count === 0 ? base : `${base.replace(/(\.[^.]+)$/, "")}_${count}$1`;
+      archive.append(buf, { name });
+    } catch {
+      // skip unreadable blobs silently
+    }
+  }
+
+  await archive.finalize();
 });
 
 export default router;

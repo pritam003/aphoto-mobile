@@ -14,6 +14,7 @@
     "@azure/storage-blob": "^12.31.0",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
+    "archiver": "^7.0.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2",
     "drizzle-orm": "catalog:",
@@ -29,6 +30,7 @@
     "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "@types/archiver": "^6.0.3",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
