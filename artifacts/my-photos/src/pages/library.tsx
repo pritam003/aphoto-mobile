@@ -20,18 +20,17 @@ export default function LibraryPage() {
   const [hasMore, setHasMore] = useState(true);
   const [sortOrder, setSortOrder] = useState<"taken" | "uploaded">("taken");
   const [showGoogleImport, setShowGoogleImport] = useState(false);
-  const [dismissedOnThisDay, setDismissedOnThisDay] = useState(false);
-  const [onThisDayPhotos, setOnThisDayPhotos] = useState<any[]>([]);
+  const [memoryDays, setMemoryDays] = useState<any[]>([]);
+  const [memoryTodayDow, setMemoryTodayDow] = useState<number>(new Date().getDay());
   const queryClient = useQueryClient();
 
-  // Fetch "on this day" from dedicated API route — not limited to paginated allPhotos
+  // Fetch weekly memories (all 7 days in one call)
   useEffect(() => {
     fetch(`${API_BASE}/photos/on-this-day`, { credentials: "include" })
-      .then(r => r.ok ? r.json() : { photos: [] })
+      .then(r => r.ok ? r.json() : { days: [], todayDow: new Date().getDay() })
       .then(d => {
-        const rows: any[] = d.photos ?? [];
-        // Attach SAS thumbnail URLs if needed (rows from raw SQL won't have them)
-        setOnThisDayPhotos(rows);
+        setMemoryDays(d.days ?? []);
+        setMemoryTodayDow(d.todayDow ?? new Date().getDay());
       })
       .catch(() => {});
   }, []);
@@ -169,11 +168,11 @@ export default function LibraryPage() {
           </div>
         ) : (
           <>
-            {/* On This Day memory reel */}
-            {onThisDayPhotos.length > 0 && !dismissedOnThisDay && !search && (
+            {/* Weekly memories strip */}
+            {memoryDays.length > 0 && !search && (
               <OnThisDayReel
-                photos={onThisDayPhotos}
-                onDismiss={() => setDismissedOnThisDay(true)}
+                days={memoryDays}
+                todayDow={memoryTodayDow}
               />
             )}
 

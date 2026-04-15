@@ -51,37 +51,52 @@ router.use(requireAuth);
 router.get("/photos/on-this-day", async (req: any, res) => {
   const userId = req.currentUser.id;
   const now = new Date();
-  // PostgreSQL DOW: 0=Sunday, 1=Monday, ... 6=Saturday
-  const dow = now.getDay();
   const thisYear = now.getFullYear();
+  const todayDow = now.getDay(); // 0=Sun … 6=Sat
   try {
+    // Fetch up to 20 photos per day-of-week for all 7 days in one query
     const rows = await db.execute(
-      sql`SELECT * FROM photos
+      sql`SELECT *, EXTRACT(DOW FROM COALESCE(taken_at, uploaded_at))::int AS dow
+          FROM photos
           WHERE user_id = ${userId}
             AND trashed = false
             AND hidden = false
-            AND EXTRACT(DOW FROM COALESCE(taken_at, uploaded_at)) = ${dow}
             AND EXTRACT(YEAR FROM COALESCE(taken_at, uploaded_at)) < ${thisYear}
-          ORDER BY COALESCE(taken_at, uploaded_at) DESC
-          LIMIT 50`,
+          ORDER BY COALESCE(taken_at, uploaded_at) DESC`,
     );
-    const photos = ((rows as any).rows ?? []).map((photo: any) => {
-      const url = generateSasUrl(photo.blob_name);
-      return {
-        id: photo.id,
-        filename: photo.filename,
-        contentType: photo.content_type,
-        size: photo.size,
-        url,
-        thumbnailUrl: url,
-        favorite: photo.favorite,
-        uploadedAt: photo.uploaded_at,
-        takenAt: photo.taken_at,
-      };
-    });
-    res.json({ photos });
+    // Group by dow, keep up to 20 per day
+    const byDow: Record<number, any[]> = {};
+    for (const photo of (rows as any).rows ?? []) {
+      const d = Number(photo.dow);
+      if (!byDow[d]) byDow[d] = [];
+      if (byDow[d].length < 20) {
+        const url = generateSasUrl(photo.blob_name);
+        byDow[d].push({
+          id: photo.id,
+          filename: photo.filename,
+          contentType: photo.content_type,
+          size: photo.size,
+          url,
+          thumbnailUrl: url,
+          favorite: photo.favorite,
+          uploadedAt: photo.uploaded_at,
+          takenAt: photo.taken_at,
+        });
+      }
+    }
+    // Return days that have photos, today first then the rest in order
+    const days: { dow: number; dayName: string; photos: any[] }[] = [];
+    const DOW_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    // Build ordered list: todayDow first, then the other 6 days in circular order
+    const order = Array.from({ length: 7 }, (_, i) => (todayDow + i) % 7);
+    for (const d of order) {
+      if (byDow[d] && byDow[d].length > 0) {
+        days.push({ dow: d, dayName: DOW_NAMES[d], photos: byDow[d] });
+      }
+    }
+    res.json({ days, todayDow });
   } catch {
-    res.json({ photos: [] });
+    res.json({ days: [], todayDow: now.getDay() });
   }
 });
 
