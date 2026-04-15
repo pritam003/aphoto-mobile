@@ -51,8 +51,8 @@ router.use(requireAuth);
 router.get("/photos/on-this-day", async (req: any, res) => {
   const userId = req.currentUser.id;
   const now = new Date();
-  const month = now.getMonth() + 1; // 1-based
-  const day = now.getDate();
+  // PostgreSQL DOW: 0=Sunday, 1=Monday, ... 6=Saturday
+  const dow = now.getDay();
   const thisYear = now.getFullYear();
   try {
     const rows = await db.execute(
@@ -60,9 +60,8 @@ router.get("/photos/on-this-day", async (req: any, res) => {
           WHERE user_id = ${userId}
             AND trashed = false
             AND hidden = false
-            AND EXTRACT(MONTH FROM COALESCE(taken_at, uploaded_at)) = ${month}
-            AND EXTRACT(DAY   FROM COALESCE(taken_at, uploaded_at)) = ${day}
-            AND EXTRACT(YEAR  FROM COALESCE(taken_at, uploaded_at)) < ${thisYear}
+            AND EXTRACT(DOW FROM COALESCE(taken_at, uploaded_at)) = ${dow}
+            AND EXTRACT(YEAR FROM COALESCE(taken_at, uploaded_at)) < ${thisYear}
           ORDER BY COALESCE(taken_at, uploaded_at) DESC
           LIMIT 50`,
     );

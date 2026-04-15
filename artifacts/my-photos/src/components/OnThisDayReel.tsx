@@ -46,7 +46,7 @@ export default function OnThisDayReel({ photos, onDismiss }: OnThisDayReelProps)
   };
 
   const today = new Date();
-  const dateLabel = today.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  const dayName = today.toLocaleDateString("en-US", { weekday: "long" });
 
   return (
     <div
@@ -56,8 +56,8 @@ export default function OnThisDayReel({ photos, onDismiss }: OnThisDayReelProps)
       {/* Section header */}
       <div className="flex items-center justify-between mb-2.5 px-0.5">
         <div>
-          <h2 className="text-base font-semibold text-foreground">On this day</h2>
-          <p className="text-xs text-muted-foreground">{dateLabel} · Over the years</p>
+          <h2 className="text-base font-semibold text-foreground">On {dayName}s</h2>
+          <p className="text-xs text-muted-foreground">Past {dayName}s · Over the years</p>
         </div>
         <button
           onClick={handleDismiss}
@@ -117,7 +117,7 @@ export default function OnThisDayReel({ photos, onDismiss }: OnThisDayReelProps)
             <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
             <div className="absolute bottom-0 left-0 p-3.5">
               <p className="text-white font-bold text-base leading-tight">
-                {dateLabel.split(" ")[0]} memories
+                {dayName} memories
               </p>
               <p className="text-white/75 text-xs mt-0.5 font-medium">Over the years</p>
             </div>
