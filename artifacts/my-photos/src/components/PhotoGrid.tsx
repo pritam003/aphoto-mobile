@@ -29,6 +29,70 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
   const { data: albumList } = useListAlbums({ query: { queryKey: getListAlbumsQueryKey(), enabled: showBulkAlbumPicker } });
   const selecting = selectedIds.size > 0;
 
+  // ── Drag-to-select ────────────────────────────────────────────────────────
+  const gridRef = useRef<HTMLDivElement>(null);
+  const dragOrigin = useRef<{ x: number; y: number } | null>(null);
+  const [dragRect, setDragRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const hasDragged = useRef(false);
+
+  const getDragRect = (ox: number, oy: number, cx: number, cy: number) => ({
+    x: Math.min(ox, cx), y: Math.min(oy, cy),
+    w: Math.abs(cx - ox), h: Math.abs(cy - oy),
+  });
+
+  const handleGridMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Only start drag on the background, not on a button/interactive element
+    const target = e.target as HTMLElement;
+    if (target.closest("button, a, [role='button']")) return;
+    if (e.button !== 0) return;
+    const grid = gridRef.current;
+    if (!grid) return;
+    const gr = grid.getBoundingClientRect();
+    dragOrigin.current = { x: e.clientX - gr.left + grid.scrollLeft, y: e.clientY - gr.top + grid.scrollTop };
+    hasDragged.current = false;
+  }, []);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragOrigin.current || !gridRef.current) return;
+      const grid = gridRef.current;
+      const gr = grid.getBoundingClientRect();
+      const cx = e.clientX - gr.left + grid.scrollLeft;
+      const cy = e.clientY - gr.top + grid.scrollTop;
+      const rect = getDragRect(dragOrigin.current.x, dragOrigin.current.y, cx, cy);
+      if (rect.w > 6 || rect.h > 6) {
+        hasDragged.current = true;
+        setDragRect(rect);
+        // Hit-test all photo elements
+        const photoEls = grid.querySelectorAll<HTMLElement>("[data-photo-id]");
+        const newSelected = new Set<string>();
+        photoEls.forEach(el => {
+          const er = el.getBoundingClientRect();
+          const elLeft = er.left - gr.left + grid.scrollLeft;
+          const elTop = er.top - gr.top + grid.scrollTop;
+          const elRight = elLeft + er.width;
+          const elBottom = elTop + er.height;
+          const rRight = rect.x + rect.w;
+          const rBottom = rect.y + rect.h;
+          if (elLeft < rRight && elRight > rect.x && elTop < rBottom && elBottom > rect.y) {
+            newSelected.add(el.dataset.photoId!);
+          }
+        });
+        if (newSelected.size > 0) setSelectedIds(newSelected);
+      }
+    };
+    const onMouseUp = () => {
+      dragOrigin.current = null;
+      setDragRect(null);
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
   // O(1) index lookup — avoids scanning allPhotos on every thumbnail render
   const photoIndexMap = useMemo(() => {
     const m = new Map<string, number>();
@@ -121,6 +185,19 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
 
   return (
     <>
+      <div ref={gridRef} className="relative select-none" onMouseDown={handleGridMouseDown}>
+        {/* Drag-select lasso overlay */}
+        {dragRect && (
+          <div
+            className="pointer-events-none fixed z-50 border-2 border-primary bg-primary/10 rounded"
+            style={{
+              left: gridRef.current ? gridRef.current.getBoundingClientRect().left + dragRect.x - (gridRef.current.scrollLeft || 0) : dragRect.x,
+              top: gridRef.current ? gridRef.current.getBoundingClientRect().top + dragRect.y - (gridRef.current.scrollTop || 0) : dragRect.y,
+              width: dragRect.w,
+              height: dragRect.h,
+            }}
+          />
+        )}
       {Object.entries(grouped).map(([month, monthPhotos]) => (
         <MonthGroup
           key={month}
@@ -136,6 +213,7 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
           onToggleSelect={handleToggleSelect}
         />
       ))}
+      </div>
 
       {lightboxIndex !== null && (
         <Lightbox
@@ -458,6 +536,7 @@ const PhotoThumbnail = memo(function PhotoThumbnail({ photo, globalIndex, onOpen
     <button
       onClick={() => selecting ? onToggleSelect(photo.id) : onOpenLightbox(globalIndex)}
       data-testid={`photo-${photo.id}`}
+      data-photo-id={photo.id}
       className="relative aspect-square bg-muted overflow-hidden rounded-lg group focus:outline-none focus:ring-2 focus:ring-primary transition-all duration-200 hover:scale-[1.03] hover:shadow-lg hover:z-10"
       style={{ contain: "layout style paint" }}
       onMouseEnter={() => isVideo && setVideoHovered(true)}
