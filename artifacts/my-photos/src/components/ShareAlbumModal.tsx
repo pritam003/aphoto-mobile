@@ -50,6 +50,10 @@ export default function ShareAlbumModal({ albumId, albumName, onClose }: Props) 
         body: JSON.stringify({ permission }),
       });
       if (res.ok) {
+        const created = await res.json();
+        // Optimistically add to list so URL is visible immediately,
+        // then re-fetch to get the canonical server copy
+        setShares(s => [...s, { ...created, createdAt: new Date().toISOString() }]);
         await loadShares();
       }
     } finally {

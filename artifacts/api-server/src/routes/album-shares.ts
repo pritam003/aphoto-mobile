@@ -81,10 +81,10 @@ router.get("/albums/:id/shares", requireAuth, async (req: any, res) => {
     .where(and(eq(albumSharesTable.albumId, albumId), isNull(albumSharesTable.revokedAt)));
 
   const appUrl = process.env.APP_URL || "";
-  res.json(shares.map(s => ({
+  res.json({ shares: shares.map(s => ({
     ...s,
     url: `${appUrl}/shared/album/${s.token}`,
-  })));
+  })) });
 });
 
 // ── Owner: revoke a share link ─────────────────────────────────────────────
