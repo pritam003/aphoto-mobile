@@ -1,11 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Search, X, Sparkles } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useListPhotos, getListPhotosQueryKey } from "@workspace/api-client-react";
 import PhotoGrid from "@/components/PhotoGrid";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetPhotoStatsQueryKey } from "@workspace/api-client-react";
 import { API_BASE } from "@/lib/api";
 import GoogleImportModal from "@/components/GoogleImportModal";
+import OnThisDayReel from "@/components/OnThisDayReel";
 
 const PAGE_SIZE = 50;
 
@@ -168,30 +169,12 @@ export default function LibraryPage() {
           </div>
         ) : (
           <>
-            {/* On This Day banner */}
+            {/* On This Day memory reel */}
             {onThisDayPhotos.length > 0 && !dismissedOnThisDay && !search && (
-              <div className="mb-6 rounded-2xl border border-border bg-card overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-primary" />
-                    <span className="text-sm font-semibold text-foreground">On this day</span>
-                    <span className="text-xs text-muted-foreground">— {new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" })} in past years</span>
-                  </div>
-                  <button onClick={() => setDismissedOnThisDay(true)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <div className="flex gap-2 overflow-x-auto p-3 scrollbar-none">
-                  {onThisDayPhotos.map(p => (
-                    <div key={p.id} className="relative shrink-0 w-28 h-28 rounded-xl overflow-hidden bg-muted group">
-                      <img src={p.thumbnailUrl || p.url} alt={p.filename} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" loading="lazy" />
-                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1">
-                        <span className="text-white text-[10px] font-medium">{new Date(p.takenAt ?? p.uploadedAt).getFullYear()}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <OnThisDayReel
+                photos={onThisDayPhotos}
+                onDismiss={() => setDismissedOnThisDay(true)}
+              />
             )}
 
             <PhotoGrid
