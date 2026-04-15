@@ -101,6 +101,11 @@ export default function AlbumsPage() {
                         </div>
                       )}
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors rounded-xl" />
+                      {album.photoCount > 0 && (
+                        <div className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[10px] font-semibold leading-tight">
+                          {album.photoCount}
+                        </div>
+                      )}
                     </div>
                     <p className="text-sm font-medium text-foreground truncate">{album.name}</p>
                     <p className="text-xs text-muted-foreground">{album.photoCount} photo{album.photoCount !== 1 ? "s" : ""}</p>

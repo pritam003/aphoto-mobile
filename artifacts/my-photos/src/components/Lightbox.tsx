@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { X, Heart, Trash2, Share2, ChevronLeft, ChevronRight, Info, RotateCcw, Download } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { X, Heart, Trash2, Share2, ChevronLeft, ChevronRight, Info, Download, Keyboard } from "lucide-react";
 import { useToggleFavorite, useTrashPhoto, useCreateShare, useListAlbums, useAddPhotoToAlbum, getListPhotosQueryKey, getGetPhotoStatsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatBytes, formatDate } from "@/lib/api";
@@ -16,6 +16,8 @@ export default function Lightbox({ photos, initialIndex, onClose }: LightboxProp
   const [showInfo, setShowInfo] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [showAlbumPicker, setShowAlbumPicker] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
   const photo = photos[index];
@@ -24,6 +26,9 @@ export default function Lightbox({ photos, initialIndex, onClose }: LightboxProp
   const createShare = useCreateShare();
   const { data: albums } = useListAlbums();
   const addToAlbum = useAddPhotoToAlbum();
+
+  // Auto-focus container so keyboard events work immediately
+  useEffect(() => { containerRef.current?.focus(); }, []);
 
   const prev = () => setIndex(i => Math.max(0, i - 1));
   const next = () => setIndex(i => Math.min(photos.length - 1, i + 1));
@@ -63,19 +68,38 @@ export default function Lightbox({ photos, initialIndex, onClose }: LightboxProp
     });
   };
 
+  const handleDownload = async () => {
+    try {
+      const res = await fetch(photo.url, { credentials: "include" });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = photo.filename || "photo"; a.click();
+      URL.revokeObjectURL(url);
+    } catch { /* ignore */ }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "ArrowLeft") prev();
-    if (e.key === "ArrowRight") next();
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (e.key === "ArrowLeft") { e.preventDefault(); prev(); }
+    if (e.key === "ArrowRight") { e.preventDefault(); next(); }
     if (e.key === "Escape") onClose();
+    if (e.key === "f" || e.key === "F") handleFavorite();
+    if (e.key === "Delete" || e.key === "Backspace") handleTrash();
+    if (e.key === "d" || e.key === "D") handleDownload();
+    if (e.key === "i" || e.key === "I") setShowInfo(v => !v);
+    if (e.key === "?") setShowShortcuts(v => !v);
   };
 
   if (!photo) return null;
 
   return (
     <div
+      ref={containerRef}
       className="fixed inset-0 z-50 bg-black/95 flex flex-col"
       onKeyDown={handleKeyDown}
       tabIndex={0}
+      style={{ outline: "none" }}
     >
       <div className="flex items-center justify-between px-4 py-3 shrink-0">
         <button onClick={onClose} className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors">
@@ -90,8 +114,11 @@ export default function Lightbox({ photos, initialIndex, onClose }: LightboxProp
           >
             <Heart className={`w-5 h-5 ${photo.favorite ? "fill-current" : ""}`} />
           </button>
-          <button onClick={handleShare} className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors">
+          <button onClick={handleShare} className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors" title="Share (S)">
             <Share2 className="w-5 h-5" />
+          </button>
+          <button onClick={handleDownload} className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors" title="Download (D)">
+            <Download className="w-5 h-5" />
           </button>
           <button
             onClick={handleTrash}
@@ -100,11 +127,14 @@ export default function Lightbox({ photos, initialIndex, onClose }: LightboxProp
           >
             <Trash2 className="w-5 h-5" />
           </button>
-          <button onClick={() => setShowInfo(v => !v)} className={`p-2 rounded-lg transition-colors ${showInfo ? "text-white bg-white/10" : "text-white/70 hover:text-white hover:bg-white/10"}`}>
+          <button onClick={() => setShowInfo(v => !v)} className={`p-2 rounded-lg transition-colors ${showInfo ? "text-white bg-white/10" : "text-white/70 hover:text-white hover:bg-white/10"}`} title="Info (I)">
             <Info className="w-5 h-5" />
           </button>
           <button onClick={() => setShowAlbumPicker(v => !v)} className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-xs font-medium px-3">
             + Album
+          </button>
+          <button onClick={() => setShowShortcuts(v => !v)} className="p-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors" title="Keyboard shortcuts (?)">
+            <Keyboard className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -171,6 +201,22 @@ export default function Lightbox({ photos, initialIndex, onClose }: LightboxProp
               {album.name}
             </button>
           ))}
+        </div>
+      )}
+
+      {showShortcuts && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60" onClick={() => setShowShortcuts(false)}>
+          <div className="bg-card border border-border rounded-2xl shadow-2xl p-6 w-72" onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-foreground mb-4">Keyboard Shortcuts</h3>
+            <div className="space-y-2 text-sm">
+              {[["←  /  →", "Previous / Next"], ["F", "Favorite"], ["D", "Download"], ["I", "Info panel"], ["Delete", "Move to trash"], ["Esc", "Close"]].map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between">
+                  <kbd className="px-2 py-0.5 rounded bg-muted text-foreground font-mono text-xs">{key}</kbd>
+                  <span className="text-muted-foreground text-xs">{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 

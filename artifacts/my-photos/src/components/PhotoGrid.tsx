@@ -20,8 +20,12 @@ interface PhotoGridProps {
 export default function PhotoGrid({ photos, emptyMessage = "No photos yet", dateField = "taken", onRemoveFromAlbum, onTrash, onBulkTrash, onHide, onBulkHide }: PhotoGridProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showBulkAlbumPicker, setShowBulkAlbumPicker] = useState(false);
+  const [bulkAlbumAdded, setBulkAlbumAdded] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const trashPhoto = useTrashPhoto();
+  const addPhotoToAlbum = useAddPhotoToAlbum();
+  const { data: albumList } = useListAlbums({ query: { queryKey: getListAlbumsQueryKey(), enabled: showBulkAlbumPicker } });
   const selecting = selectedIds.size > 0;
 
   // O(1) index lookup — avoids scanning allPhotos on every thumbnail render
@@ -96,6 +100,16 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onBulkHide, selectedIds]);
 
+  const handleBulkAddToAlbum = useCallback(async (albumId: string) => {
+    const ids = Array.from(selectedIds);
+    await Promise.all(ids.map(photoId => addPhotoToAlbum.mutateAsync({ id: albumId, data: { photoId } })));
+    queryClient.invalidateQueries({ queryKey: getListAlbumPhotosQueryKey(albumId) });
+    queryClient.invalidateQueries({ queryKey: getListAlbumsQueryKey() });
+    setBulkAlbumAdded(albumId);
+    setTimeout(() => { setBulkAlbumAdded(null); setShowBulkAlbumPicker(false); setSelectedIds(new Set()); }, 800);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIds]);
+
   if (photos.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
@@ -148,6 +162,34 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
             <Download className="w-3.5 h-3.5" />
             Download
           </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowBulkAlbumPicker(v => !v)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+            >
+              <FolderPlus className="w-3.5 h-3.5" />
+              Add to album
+            </button>
+            {showBulkAlbumPicker && (
+              <div className="absolute bottom-full mb-2 left-0 z-20 bg-card border border-border rounded-xl shadow-2xl min-w-44 max-h-56 overflow-y-auto">
+                <p className="text-xs text-muted-foreground px-3 py-2 border-b border-border">Add {selectedIds.size} photo{selectedIds.size !== 1 ? "s" : ""} to…</p>
+                {!albumList || albumList.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-3 py-2">No albums yet</p>
+                ) : (
+                  albumList.map((album: any) => (
+                    <button
+                      key={album.id}
+                      onClick={() => handleBulkAddToAlbum(album.id)}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center justify-between gap-2 transition-colors"
+                    >
+                      <span className="truncate">{album.name}</span>
+                      {bulkAlbumAdded === album.id && <Check className="w-3.5 h-3.5 text-green-500 shrink-0" />}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
           <button
             onClick={handleBulkHide}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
