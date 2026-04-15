@@ -271,7 +271,6 @@ export default function AlbumDetailPage() {
           </div>
         </div>
       )}
-    </div>
 
       {showShare && (
         <ShareAlbumModal
@@ -280,5 +279,6 @@ export default function AlbumDetailPage() {
           onClose={() => setShowShare(false)}
         />
       )}
+    </div>
   );
 }
