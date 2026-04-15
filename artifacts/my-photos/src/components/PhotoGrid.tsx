@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 import { Heart, FolderPlus, Check, FolderMinus, Trash2, Download, X, EyeOff, Eye } from "lucide-react";
 import { groupPhotosByDate } from "@/lib/api";
 import Lightbox from "./Lightbox";
@@ -24,15 +24,26 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
   const trashPhoto = useTrashPhoto();
   const selecting = selectedIds.size > 0;
 
-  const handleToggleSelect = (id: string) => {
+  // O(1) index lookup — avoids scanning allPhotos on every thumbnail render
+  const photoIndexMap = useMemo(() => {
+    const m = new Map<string, number>();
+    photos.forEach((p, i) => m.set(p.id, i));
+    return m;
+  }, [photos]);
+
+  const grouped = useMemo(() => groupPhotosByDate(photos, dateField), [photos, dateField]);
+
+  const handleToggleSelect = useCallback((id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
-  };
+  }, []);
 
-  const handleBulkDownload = async () => {
+  const handleOpenLightbox = useCallback((idx: number) => setLightboxIndex(idx), []);
+
+  const handleBulkDownload = useCallback(async () => {
     const selectedPhotos = photos.filter(p => selectedIds.has(p.id));
     for (const photo of selectedPhotos) {
       try {
@@ -49,9 +60,10 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
         await new Promise(r => setTimeout(r, 200));
       } catch { /* skip failed */ }
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photos, selectedIds]);
 
-  const handleBulkTrash = async () => {
+  const handleBulkTrash = useCallback(async () => {
     const ids = Array.from(selectedIds);
     if (onBulkTrash) {
       await onBulkTrash(ids);
@@ -61,9 +73,10 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
       queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
     }
     setSelectedIds(new Set());
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onBulkTrash, selectedIds]);
 
-  const handleBulkHide = async () => {
+  const handleBulkHide = useCallback(async () => {
     const ids = Array.from(selectedIds);
     if (onBulkHide) {
       await onBulkHide(ids);
@@ -80,7 +93,8 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
       queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
     }
     setSelectedIds(new Set());
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onBulkHide, selectedIds]);
 
   if (photos.length === 0) {
     return (
@@ -90,8 +104,6 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
     );
   }
 
-  const grouped = groupPhotosByDate(photos, dateField);
-
   return (
     <>
       {Object.entries(grouped).map(([month, monthPhotos]) => (
@@ -99,8 +111,8 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
           key={month}
           month={month}
           monthPhotos={monthPhotos}
-          allPhotos={photos}
-          onOpenLightbox={(idx) => setLightboxIndex(idx)}
+          photoIndexMap={photoIndexMap}
+          onOpenLightbox={handleOpenLightbox}
           onRemoveFromAlbum={onRemoveFromAlbum}
           onTrash={onTrash}
           onHide={onHide}
@@ -208,10 +220,10 @@ function StackCell({ hiddenCount, previews, onExpand }: { hiddenCount: number; p
   );
 }
 
-function MonthGroup({ month, monthPhotos, allPhotos, onOpenLightbox, onRemoveFromAlbum, onTrash, onHide, selectedIds, selecting, onToggleSelect }: {
+const MonthGroup = memo(function MonthGroup({ month, monthPhotos, photoIndexMap, onOpenLightbox, onRemoveFromAlbum, onTrash, onHide, selectedIds, selecting, onToggleSelect }: {
   month: string;
   monthPhotos: any[];
-  allPhotos: any[];
+  photoIndexMap: Map<string, number>;
   onOpenLightbox: (idx: number) => void;
   onRemoveFromAlbum?: (photoId: string) => void;
   onTrash?: (photoId: string) => void;
@@ -227,7 +239,7 @@ function MonthGroup({ month, monthPhotos, allPhotos, onOpenLightbox, onRemoveFro
   const stackPreviews = monthPhotos.slice(STACK_THRESHOLD - 1, STACK_THRESHOLD + 2);
 
   return (
-    <div className="mb-10" style={{ contentVisibility: "auto", containIntrinsicSize: "0 600px" }}>
+    <div className="mb-10" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 600px" }}>
       <div className="flex items-center justify-between mb-4 px-1">
         <div className="flex items-center gap-2.5">
           <span className="w-1 h-5 rounded-full bg-primary inline-block" />
@@ -245,12 +257,13 @@ function MonthGroup({ month, monthPhotos, allPhotos, onOpenLightbox, onRemoveFro
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-1.5">
         {visiblePhotos.map((photo: any) => {
-          const globalIdx = allPhotos.findIndex(p => p.id === photo.id);
+          const globalIdx = photoIndexMap.get(photo.id) ?? -1;
           return (
             <PhotoThumbnail
               key={photo.id}
               photo={photo}
-              onClick={() => onOpenLightbox(globalIdx)}
+              globalIndex={globalIdx}
+              onOpenLightbox={onOpenLightbox}
               onRemoveFromAlbum={onRemoveFromAlbum}
               onTrash={onTrash}
               onHide={onHide}
@@ -270,7 +283,7 @@ function MonthGroup({ month, monthPhotos, allPhotos, onOpenLightbox, onRemoveFro
       </div>
     </div>
   );
-}
+});
 
 function VideoThumbnailCell({ src, isHovered }: { src: string; alt: string; isHovered: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -373,9 +386,10 @@ function VideoThumbnailCell({ src, isHovered }: { src: string; alt: string; isHo
   );
 }
 
-function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, selected, selecting, onToggleSelect }: {
+const PhotoThumbnail = memo(function PhotoThumbnail({ photo, globalIndex, onOpenLightbox, onRemoveFromAlbum, onTrash, onHide, selected, selecting, onToggleSelect }: {
   photo: any;
-  onClick: () => void;
+  globalIndex: number;
+  onOpenLightbox: (idx: number) => void;
   onRemoveFromAlbum?: (photoId: string) => void;
   onTrash?: (photoId: string) => void;
   onHide?: (photoId: string) => void;
@@ -405,7 +419,7 @@ function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, se
 
   return (
     <button
-      onClick={() => selecting ? onToggleSelect(photo.id) : onClick()}
+      onClick={() => selecting ? onToggleSelect(photo.id) : onOpenLightbox(globalIndex)}
       data-testid={`photo-${photo.id}`}
       className="relative aspect-square bg-muted overflow-hidden rounded-lg group focus:outline-none focus:ring-2 focus:ring-primary transition-all duration-200 hover:scale-[1.03] hover:shadow-lg hover:z-10"
       style={{ contain: "layout style paint" }}
@@ -527,4 +541,4 @@ function PhotoThumbnail({ photo, onClick, onRemoveFromAlbum, onTrash, onHide, se
       )}
     </button>
   );
-}
+});

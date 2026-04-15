@@ -16,6 +16,7 @@ export default function AlbumDetailPage() {
   const [editName, setEditName] = useState("");
   const [showUpload, setShowUpload] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [pickerLimit, setPickerLimit] = useState(50);
   const [showGoogleImport, setShowGoogleImport] = useState(false);
   const [sortOrder, setSortOrder] = useState<"taken" | "uploaded">("taken");
   const queryClient = useQueryClient();
@@ -205,7 +206,7 @@ export default function AlbumDetailPage() {
           <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border">
               <h2 className="text-lg font-semibold text-foreground">Add photos to "{album?.name}"</h2>
-              <button onClick={() => setShowPicker(false)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+              <button onClick={() => { setShowPicker(false); setPickerLimit(50); }} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -213,24 +214,36 @@ export default function AlbumDetailPage() {
               {libraryPhotos.length === 0 ? (
                 <p className="text-center text-muted-foreground py-12">All your photos are already in this album.</p>
               ) : (
-                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
-                  {libraryPhotos.map((photo: any) => (
-                    <button
-                      key={photo.id}
-                      onClick={() => handleAddExisting(photo.id)}
-                      className="relative aspect-square rounded-lg overflow-hidden bg-muted group hover:ring-2 hover:ring-primary transition-all"
-                    >
-                      <img src={photo.thumbnailUrl || photo.url} alt={photo.filename} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                        <Plus className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                    {libraryPhotos.slice(0, pickerLimit).map((photo: any) => (
+                      <button
+                        key={photo.id}
+                        onClick={() => handleAddExisting(photo.id)}
+                        className="relative aspect-square rounded-lg overflow-hidden bg-muted group hover:ring-2 hover:ring-primary transition-all"
+                      >
+                        <img src={photo.thumbnailUrl || photo.url} alt={photo.filename} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                          <Plus className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  {pickerLimit < libraryPhotos.length && (
+                    <div className="mt-4 flex justify-center">
+                      <button
+                        onClick={() => setPickerLimit(l => l + 50)}
+                        className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+                      >
+                        Show 50 more ({libraryPhotos.length - pickerLimit} remaining)
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
             <div className="px-6 py-3 border-t border-border">
-              <button onClick={() => setShowPicker(false)} className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors">
+              <button onClick={() => { setShowPicker(false); setPickerLimit(50); }} className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors">
                 Done
               </button>
             </div>

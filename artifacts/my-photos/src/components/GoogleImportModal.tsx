@@ -186,126 +186,28 @@ export default function GoogleImportModal({ onClose, activeImportId, targetAlbum
     );
   }
 
-  /* ─── ACTIVE: bottom-right panel ──────────────────────────────────── */
-  const panelTitle = importStatus?.albumName
-    ?? (pendingState && !importId ? "Waiting for sign-in…" : "Connecting…");
+  /* ─── ACTIVE: hand off to global banner, show minimal waiting UI ──────── */
+  // Once we have an importId OR we're in "picking" or "importing" state,
+  // the global ImportProgressBanner handles everything — close this modal.
+  if (importId || (importStatus && importStatus.status !== "error")) {
+    return null;
+  }
 
+  // Only show a small error state if something went wrong before import started
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-80 rounded-2xl bg-card border border-border shadow-2xl overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <div className="flex items-center gap-2 min-w-0">
-          <FolderDown className="w-4 h-4 text-primary shrink-0" />
-          <span className="text-sm font-semibold text-foreground truncate">{panelTitle}</span>
-          {(pendingState || importStatus?.status === "importing" || importStatus?.status === "picking") &&
-            <Loader2 className="w-3.5 h-3.5 text-primary animate-spin shrink-0" />}
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button onClick={() => setCollapsed(c => !c)} className="p-1 rounded hover:bg-muted text-muted-foreground transition-colors">
-            {collapsed ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 backdrop-blur-sm p-4">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <AlertCircle className="w-5 h-5 text-destructive shrink-0" />
+          <p className="text-sm font-medium text-foreground">Import failed</p>
+          <button onClick={onClose} className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground">
+            <X className="w-4 h-4" />
           </button>
-          {(importStatus?.status === "done" || importStatus?.status === "error") && (
-            <button onClick={onClose} className="p-1 rounded hover:bg-muted text-muted-foreground transition-colors">
-              <X className="w-4 h-4" />
-            </button>
-          )}
         </div>
+        {importStatus?.message && <p className="text-xs text-muted-foreground">{importStatus.message}</p>}
+        <button onClick={onClose} className="w-full py-2 rounded-lg border border-border text-sm hover:bg-muted transition-colors">Close</button>
       </div>
-
-      {!collapsed && (
-        <div className="p-3 space-y-3">
-          {/* Waiting for OAuth */}
-          {pendingState && !importId && (
-            <div className="flex items-center gap-2 py-1">
-              <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
-              <div>
-                <p className="text-xs font-medium text-foreground">Waiting for Google sign-in…</p>
-                <p className="text-xs text-muted-foreground">Complete sign-in in the new tab.</p>
-              </div>
-            </div>
-          )}
-
-          {/* Waiting for picker */}
-          {importStatus?.status === "picking" && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
-                <div>
-                  <p className="text-xs font-medium text-foreground">Select photos in Google Photos</p>
-                  <p className="text-xs text-muted-foreground">Click Done when finished — import starts automatically.</p>
-                </div>
-              </div>
-              {importStatus.pickerUri && (
-                <button
-                  onClick={() => window.open(importStatus.pickerUri!, "_blank", "noopener,noreferrer")}
-                  className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" /> Reopen Picker
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Importing */}
-          {importStatus && importStatus.status !== "picking" && (
-            <>
-              {/* Status line */}
-              <div className="flex items-center gap-2">
-                {importStatus.status === "importing" && <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />}
-                {importStatus.status === "done"      && <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />}
-                {importStatus.status === "error"     && <AlertCircle className="w-4 h-4 text-destructive shrink-0" />}
-                <p className="text-xs text-muted-foreground">
-                  {importStatus.status === "importing" && `${importStatus.imported} / ${importStatus.total} imported`}
-                  {importStatus.status === "done"      && `${importStatus.imported} photo${importStatus.imported !== 1 ? "s" : ""} imported${importStatus.errors ? `, ${importStatus.errors} skipped` : ""}`}
-                  {importStatus.status === "error"     && importStatus.message}
-                </p>
-              </div>
-
-              {/* Progress bar */}
-              {importStatus.total > 0 && (
-                <div className="h-1 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${
-                      importStatus.status === "error" ? "bg-destructive" :
-                      importStatus.status === "done"  ? "bg-green-500" : "bg-primary"
-                    }`}
-                    style={{ width: `${importStatus.status === "done" ? 100 : pct}%` }}
-                  />
-                </div>
-              )}
-
-              {/* Live thumbnails — pop in as each photo lands */}
-              {thumbs.length > 0 && (
-                <div className="grid grid-cols-5 gap-1">
-                  {thumbs.map(t => (
-                    <div key={t.id} className="aspect-square rounded overflow-hidden bg-muted">
-                      <img src={t.thumbnailUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Actions */}
-              {importStatus.status === "done" && importStatus.albumId && (
-                <button
-                  onClick={() => { onClose(); navigate(`/albums/${importStatus.albumId}`); }}
-                  className="w-full py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-medium transition-colors"
-                >
-                  View album
-                </button>
-              )}
-              {importStatus.status === "error" && (
-                <button
-                  onClick={() => { setImportId(null); setImportStatus(null); setPendingState(null); setThumbs([]); }}
-                  className="w-full py-2 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors"
-                >
-                  Try again
-                </button>
-              )}
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
+
 }
