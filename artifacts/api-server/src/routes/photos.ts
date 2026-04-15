@@ -127,9 +127,32 @@ router.get("/photos/stats", async (req: any, res) => {
   });
 });
 
+// Returns distinct months that have photos, with counts
+router.get("/photos/months", async (req: any, res) => {
+  const userId = req.currentUser.id;
+  try {
+    const rows = await db.execute(
+      sql`SELECT
+            TO_CHAR(DATE_TRUNC('month', COALESCE(taken_at, uploaded_at)), 'YYYY-MM') AS year_month,
+            COUNT(*) AS count
+          FROM photos
+          WHERE user_id = ${userId} AND trashed = false AND hidden = false
+          GROUP BY 1
+          ORDER BY 1 DESC`,
+    );
+    const months = ((rows as any).rows ?? []).map((r: any) => ({
+      yearMonth: r.year_month,
+      count: Number(r.count),
+    }));
+    res.json({ months });
+  } catch {
+    res.json({ months: [] });
+  }
+});
+
 router.get("/photos", async (req: any, res) => {
   const userId = req.currentUser.id;
-  const { search, album, favorite, trashed, hidden, limit = "50", offset = "0", orderBy = "taken" } = req.query as Record<string, string>;
+  const { search, album, favorite, trashed, hidden, limit = "50", offset = "0", orderBy = "taken", month } = req.query as Record<string, string>;
 
   const conditions = [eq(photosTable.userId, userId)];
 
@@ -155,6 +178,13 @@ router.get("/photos", async (req: any, res) => {
         ilike(photosTable.filename, `%${search}%`),
         ilike(photosTable.description, `%${search}%`),
       )!,
+    );
+  }
+
+  // Filter to a specific month: month=YYYY-MM
+  if (month && /^\d{4}-\d{2}$/.test(month)) {
+    conditions.push(
+      sql`TO_CHAR(DATE_TRUNC('month', COALESCE(${photosTable.takenAt}, ${photosTable.uploadedAt})), 'YYYY-MM') = ${month}`,
     );
   }
 
