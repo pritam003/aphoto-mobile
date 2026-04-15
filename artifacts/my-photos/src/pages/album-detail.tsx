@@ -19,6 +19,7 @@ export default function AlbumDetailPage() {
   const [pickerLimit, setPickerLimit] = useState(50);
   const [showGoogleImport, setShowGoogleImport] = useState(false);
   const [sortOrder, setSortOrder] = useState<"taken" | "uploaded">("taken");
+  const [displayLimit, setDisplayLimit] = useState(50);
   const queryClient = useQueryClient();
 
   const { activeImportAlbumId } = useImport();
@@ -134,7 +135,7 @@ export default function AlbumDetailPage() {
         <span className="text-sm text-muted-foreground">{photos.length} photo{photos.length !== 1 ? "s" : ""}</span>
         <select
           value={sortOrder}
-          onChange={e => setSortOrder(e.target.value as "taken" | "uploaded")}
+          onChange={e => { setSortOrder(e.target.value as "taken" | "uploaded"); setDisplayLimit(50); }}
           className="text-xs px-2 py-1.5 rounded-md border border-border bg-background text-foreground cursor-pointer"
         >
           <option value="taken">Date taken</option>
@@ -173,14 +174,26 @@ export default function AlbumDetailPage() {
             ))}
           </div>
         ) : (
-          <PhotoGrid
-            photos={photos}
-            dateField={sortOrder}
-            emptyMessage="No photos in this album yet. Upload or add existing photos."
-            onRemoveFromAlbum={handleRemoveFromAlbum}
-            onTrash={handleTrash}
-            onBulkTrash={handleBulkTrash}
-          />
+          <>
+            <PhotoGrid
+              photos={photos.slice(0, displayLimit)}
+              dateField={sortOrder}
+              emptyMessage="No photos in this album yet. Upload or add existing photos."
+              onRemoveFromAlbum={handleRemoveFromAlbum}
+              onTrash={handleTrash}
+              onBulkTrash={handleBulkTrash}
+            />
+            {displayLimit < photos.length && (
+              <div className="flex justify-center py-6">
+                <button
+                  onClick={() => setDisplayLimit(l => l + 50)}
+                  className="px-5 py-2 text-sm rounded-xl border border-border hover:bg-muted transition-colors"
+                >
+                  Show 50 more ({photos.length - displayLimit} remaining)
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
