@@ -44,7 +44,9 @@ export const albumSharesTable = pgTable("album_shares", {
   token: text("token").primaryKey(),
   albumId: uuid("album_id").notNull().references(() => albumsTable.id, { onDelete: "cascade" }),
   createdBy: text("created_by").notNull(),
+  name: text("name"),                                        // human-readable label set by owner
   permission: text("permission").notNull().default("view"), // 'view' | 'contribute'
+  accessCodeHash: text("access_code_hash").notNull(),       // SHA-256 of the generated access code
   revokedAt: timestamp("revoked_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

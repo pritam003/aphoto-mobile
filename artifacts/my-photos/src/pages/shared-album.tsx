@@ -1,6 +1,6 @@
 import { useRoute } from "wouter";
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Images, Upload, X, Check, AlertCircle, Download, ArrowDownToLine } from "lucide-react";
+import { Images, Upload, X, Check, AlertCircle, Download, ArrowDownToLine, KeyRound, LogIn } from "lucide-react";
 import { API_BASE } from "@/lib/api";
 
 interface Photo {
@@ -54,8 +54,18 @@ export default function SharedAlbumPage() {
   const [, params] = useRoute("/shared/album/:token");
   const token = params?.token ?? "";
 
+  // ── Access code gate ────────────────────────────────────────────────────────
+  // Restore from sessionStorage so the user doesn't have to re-enter on refresh
+  const sessionKey = `access_code:${token}`;
+  const [accessCode, setAccessCode] = useState<string>(() => {
+    try { return sessionStorage.getItem(sessionKey) ?? ""; } catch { return ""; }
+  });
+  const [codeInput, setCodeInput] = useState("");
+  const [codeError, setCodeError] = useState("");
+  const [verifying, setVerifying] = useState(false);
+
   const [data, setData] = useState<SharedAlbumData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
 
   const [uploadState, setUploadState] = useState<UploadState>({ status: "idle" });
@@ -85,7 +95,7 @@ export default function SharedAlbumPage() {
     try {
       const res = await fetch(`${API_BASE}/shared/albums/${token}/download-zip`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-access-code": accessCode },
         body: JSON.stringify({ photoIds: [...selectedIds] }),
       });
       if (!res.ok) throw new Error();
@@ -107,10 +117,21 @@ export default function SharedAlbumPage() {
   };
 
   // ── Load album ─────────────────────────────────────────────────────────────
-  const loadAlbum = useCallback(async () => {
-    if (!token) return;
+  const loadAlbum = useCallback(async (code: string) => {
+    if (!token || !code) return;
+    setLoading(true);
+    setError(false);
     try {
-      const res = await fetch(`${API_BASE}/shared/albums/${token}`);
+      const res = await fetch(`${API_BASE}/shared/albums/${token}`, {
+        headers: { "x-access-code": code },
+      });
+      if (res.status === 401 || res.status === 403) {
+        // Code was wrong or expired — clear stored code and show gate again
+        try { sessionStorage.removeItem(sessionKey); } catch { /* noop */ }
+        setAccessCode("");
+        setCodeError("Incorrect access code. Please try again.");
+        return;
+      }
       if (!res.ok) throw new Error();
       const json = await res.json();
       setData(json);
@@ -119,9 +140,39 @@ export default function SharedAlbumPage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, sessionKey]);
 
-  useEffect(() => { loadAlbum(); }, [loadAlbum]);
+  // Load album automatically once we have a valid code
+  useEffect(() => {
+    if (accessCode) loadAlbum(accessCode);
+  }, [accessCode, loadAlbum]);
+
+  // ── Submit access code from gate screen ─────────────────────────────────────
+  const submitCode = async () => {
+    const trimmed = codeInput.trim().toUpperCase();
+    if (!trimmed) { setCodeError("Please enter the access code."); return; }
+    setVerifying(true);
+    setCodeError("");
+    try {
+      const res = await fetch(`${API_BASE}/shared/albums/${token}`, {
+        headers: { "x-access-code": trimmed },
+      });
+      if (res.status === 401 || res.status === 403) {
+        setCodeError("Incorrect access code. Please try again.");
+        return;
+      }
+      if (!res.ok) { setError(true); return; }
+      // Code is valid — store and set
+      try { sessionStorage.setItem(sessionKey, trimmed); } catch { /* noop */ }
+      const json = await res.json();
+      setAccessCode(trimmed);
+      setData(json);
+    } catch {
+      setError(true);
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   // ── Keyboard nav ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -149,6 +200,7 @@ export default function SharedAlbumPage() {
     try {
       const res = await fetch(`${API_BASE}/shared/albums/${token}/photos`, {
         method: "POST",
+        headers: { "x-access-code": accessCode },
         body: formData,
       });
       if (!res.ok) {
@@ -156,7 +208,7 @@ export default function SharedAlbumPage() {
         throw new Error(body.error ?? "Upload failed");
       }
       setUploadState({ status: "done", name: file.name });
-      await loadAlbum();
+      await loadAlbum(accessCode);
       setTimeout(() => setUploadState({ status: "idle" }), 3000);
     } catch (err: any) {
       setUploadState({ status: "error", name: file.name, message: err.message ?? "Upload failed" });
@@ -174,6 +226,56 @@ export default function SharedAlbumPage() {
     setDragging(false);
     handleFiles(e.dataTransfer.files);
   };
+
+  // ── Access code gate ────────────────────────────────────────────────────────
+  if (!accessCode || (!data && !loading && !error)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background px-4">
+        <div className="w-full max-w-sm">
+          <div className="flex flex-col items-center gap-3 mb-8">
+            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
+              <KeyRound className="w-7 h-7 text-primary" />
+            </div>
+            <h1 className="text-xl font-semibold text-foreground">Access code required</h1>
+            <p className="text-sm text-muted-foreground text-center">
+              This album is protected. Enter the access code shared with you to continue.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <input
+              type="text"
+              value={codeInput}
+              onChange={e => { setCodeInput(e.target.value.toUpperCase()); setCodeError(""); }}
+              onKeyDown={e => e.key === "Enter" && submitCode()}
+              placeholder="XXXX-XXXX"
+              maxLength={9}
+              autoFocus
+              spellCheck={false}
+              className={`w-full text-center text-2xl font-mono font-bold tracking-widest px-4 py-4 rounded-2xl border bg-background outline-none transition-colors ${
+                codeError ? "border-destructive" : "border-border focus:border-primary"
+              }`}
+            />
+            {codeError && (
+              <p className="text-xs text-destructive text-center">{codeError}</p>
+            )}
+            <button
+              onClick={submitCode}
+              disabled={verifying}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {verifying ? (
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <LogIn className="w-4 h-4" />
+              )}
+              {verifying ? "Verifying…" : "Access album"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ── States ─────────────────────────────────────────────────────────────────
   if (loading) {

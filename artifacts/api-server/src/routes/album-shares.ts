@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { randomBytes } from "crypto";
+import { randomBytes, createHash } from "crypto";
 import multer from "multer";
 import { randomUUID } from "crypto";
 import { db, albumsTable, albumPhotosTable, photosTable, albumSharesTable } from "@workspace/db";
@@ -7,6 +7,37 @@ import { eq, and, isNull } from "drizzle-orm";
 import { generateSasUrl, uploadBlob, downloadBlob } from "../lib/azure-storage.js";
 import archiver from "archiver";
 import exifr from "exifr";
+
+// ── Access-code helpers ────────────────────────────────────────────────────────
+/** Generate a Microsoft-style access code like "ABCD-EF23" */
+function generateAccessCode(): string {
+  // Exclude visually ambiguous chars: 0/O, 1/I
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = randomBytes(8);
+  let raw = "";
+  for (let i = 0; i < 8; i++) raw += chars[bytes[i] % chars.length];
+  return `${raw.slice(0, 4)}-${raw.slice(4)}`;
+}
+
+/** Hash a code (normalised: uppercase, dash removed) with SHA-256 */
+function hashAccessCode(code: string): string {
+  const normalised = code.toUpperCase().replace(/-/g, "");
+  return createHash("sha256").update(normalised).digest("hex");
+}
+
+/** Read x-access-code header, verify against stored hash. Returns true if OK. */
+function verifyAccessCode(req: any, res: any, share: any): boolean {
+  const raw = ((req.headers["x-access-code"] as string) ?? "").trim();
+  if (!raw) {
+    res.status(401).json({ error: "Access code required" });
+    return false;
+  }
+  if (hashAccessCode(raw) !== share.accessCodeHash) {
+    res.status(403).json({ error: "Invalid access code" });
+    return false;
+  }
+  return true;
+}
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
@@ -46,8 +77,11 @@ async function extractTakenAt(buffer: Buffer, mimeType: string): Promise<Date | 
 router.post("/albums/:id/share", requireAuth, async (req: any, res) => {
   const userId = req.currentUser.id;
   const albumId = req.params.id;
-  const { permission = "view" } = req.body as { permission?: "view" | "contribute" };
+  const { permission = "view", name } = req.body as { permission?: "view" | "contribute"; name?: string };
 
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: "A name for this share link is required" });
+  }
   if (!["view", "contribute"].includes(permission)) {
     return res.status(400).json({ error: "permission must be 'view' or 'contribute'" });
   }
@@ -59,10 +93,27 @@ router.post("/albums/:id/share", requireAuth, async (req: any, res) => {
   if (!album) return res.status(404).json({ error: "Album not found" });
 
   const token = randomBytes(24).toString("hex");
-  await db.insert(albumSharesTable).values({ token, albumId, createdBy: userId, permission });
+  const accessCode = generateAccessCode();
+  const accessCodeHash = hashAccessCode(accessCode);
+
+  await db.insert(albumSharesTable).values({
+    token,
+    albumId,
+    createdBy: userId,
+    name: name.trim(),
+    permission,
+    accessCodeHash,
+  });
 
   const appUrl = process.env.APP_URL || "";
-  res.status(201).json({ token, url: `${appUrl}/shared/album/${token}`, permission });
+  // accessCode is returned ONCE here — it is never stored in plaintext
+  res.status(201).json({
+    token,
+    url: `${appUrl}/shared/album/${token}`,
+    permission,
+    name: name.trim(),
+    accessCode,
+  });
 });
 
 // ── Owner: list active shares for an album ────────────────────────────────
@@ -83,7 +134,12 @@ router.get("/albums/:id/shares", requireAuth, async (req: any, res) => {
 
   const appUrl = process.env.APP_URL || "";
   res.json({ shares: shares.map(s => ({
-    ...s,
+    token: s.token,
+    albumId: s.albumId,
+    createdBy: s.createdBy,
+    name: s.name,
+    permission: s.permission,
+    createdAt: s.createdAt,
     url: `${appUrl}/shared/album/${s.token}`,
   })) });
 });
@@ -111,6 +167,7 @@ router.get("/shared/albums/:token", async (req, res) => {
     .from(albumSharesTable)
     .where(and(eq(albumSharesTable.token, req.params.token), isNull(albumSharesTable.revokedAt)));
   if (!share) return res.status(404).json({ error: "Share link not found or revoked" });
+  if (!verifyAccessCode(req, res, share)) return;
 
   const [album] = await db.select().from(albumsTable).where(eq(albumsTable.id, share.albumId));
   if (!album) return res.status(404).json({ error: "Album not found" });
@@ -137,6 +194,7 @@ router.post("/shared/albums/:token/photos", upload.single("file"), async (req: a
     .from(albumSharesTable)
     .where(and(eq(albumSharesTable.token, req.params.token), isNull(albumSharesTable.revokedAt)));
   if (!share) return res.status(404).json({ error: "Share link not found or revoked" });
+  if (!verifyAccessCode(req, res, share)) return;
   if (share.permission !== "contribute") return res.status(403).json({ error: "This link is view-only" });
 
   const file = req.file;
@@ -174,6 +232,7 @@ router.post("/shared/albums/:token/download-zip", async (req, res) => {
     .from(albumSharesTable)
     .where(and(eq(albumSharesTable.token, req.params.token), isNull(albumSharesTable.revokedAt)));
   if (!share) return res.status(404).json({ error: "Share link not found or revoked" });
+  if (!verifyAccessCode(req, res, share)) return;
 
   const [album] = await db.select().from(albumsTable).where(eq(albumsTable.id, share.albumId));
   if (!album) return res.status(404).json({ error: "Album not found" });

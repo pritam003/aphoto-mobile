@@ -18,16 +18,22 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-// Ensure album_shares table exists (idempotent startup migration)
+// Ensure album_shares table exists with all required columns (idempotent)
 await db.execute(sql`
   CREATE TABLE IF NOT EXISTS album_shares (
-    token        TEXT        PRIMARY KEY,
-    album_id     UUID        NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
-    created_by   TEXT        NOT NULL,
-    permission   TEXT        NOT NULL DEFAULT 'view',
-    revoked_at   TIMESTAMPTZ,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    token             TEXT        PRIMARY KEY,
+    album_id          UUID        NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    created_by        TEXT        NOT NULL,
+    name              TEXT,
+    permission        TEXT        NOT NULL DEFAULT 'view',
+    access_code_hash  TEXT        NOT NULL DEFAULT '',
+    revoked_at        TIMESTAMPTZ,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )
+`);
+// Add new columns to existing tables (safe no-ops if already present)
+await db.execute(sql`ALTER TABLE album_shares ADD COLUMN IF NOT EXISTS name TEXT`);
+await db.execute(sql`ALTER TABLE album_shares ADD COLUMN IF NOT EXISTS access_code_hash TEXT NOT NULL DEFAULT ''`);
 `);
 
 app.listen(port, (err) => {
