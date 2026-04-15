@@ -25,7 +25,7 @@ export default function LibraryPage() {
   const queryClient = useQueryClient();
 
   // Fetch weekly memories (all 7 days in one call)
-  useEffect(() => {
+  const refreshMemories = useCallback(() => {
     fetch(`${API_BASE}/photos/on-this-day`, { credentials: "include" })
       .then(r => r.ok ? r.json() : { days: [], todayDow: new Date().getDay() })
       .then(d => {
@@ -34,6 +34,8 @@ export default function LibraryPage() {
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => { refreshMemories(); }, [refreshMemories]);
 
   const handleSearchChange = (val: string) => {
     setSearch(val);
@@ -77,6 +79,7 @@ export default function LibraryPage() {
     setHasMore(true);
     queryClient.invalidateQueries({ queryKey: getListPhotosQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
+    refreshMemories();
   };
 
   const handleHidePhoto = async (id: string) => {
