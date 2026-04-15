@@ -13,10 +13,10 @@ const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(authRouter);
+router.use(albumSharesRouter);
 router.use(photosRouter);
 router.use(albumsRouter);
 router.use(sharesRouter);
-router.use(albumSharesRouter);
 router.use(blobsRouter);
 router.use(googleImportRouter);
 router.use(archiveLockRouter);
