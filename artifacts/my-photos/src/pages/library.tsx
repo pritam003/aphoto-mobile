@@ -262,32 +262,31 @@ export default function LibraryPage() {
       {showGoogleImport && <GoogleImportModal onClose={() => setShowGoogleImport(false)} />}
 
       <div className="flex-1 overflow-y-auto px-6 py-5 relative">
-        {/* Year scrubber — vertical timeline on right edge */}
+        {/* Year scrubber — full-height track on right edge, like Google Photos */}
         {!debouncedSearch && yearsList.length > 1 && (
-          <div className="fixed right-3 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-0 select-none">
-            {yearsList.map((year, idx) => {
+          <div className="fixed right-3 top-14 bottom-0 z-20 flex flex-col items-center justify-between py-6 select-none w-10">
+            {/* Track line behind */}
+            <div className="absolute inset-y-6 left-1/2 -translate-x-1/2 w-px bg-border/60" />
+            {yearsList.map((year) => {
               const isActive = year === (activeYear ?? yearsList[0]);
               return (
-                <div key={year} className="flex items-center group cursor-pointer" onClick={() => scrollToYear(year)}>
-                  {/* Line above dot (skip for first) */}
-                  {idx > 0 && <div className="absolute" />}
-                  <div className="flex flex-col items-center">
-                    {idx > 0 && <div className={`w-px h-4 ${isActive ? 'bg-primary' : 'bg-border'} transition-colors`} />}
-                    {/* Dot + label row */}
-                    <div className="flex items-center gap-1.5">
-                      {/* Year label — appears on hover or when active */}
-                      <span className={`text-[11px] font-semibold transition-all duration-150 ${
-                        isActive
-                          ? 'text-primary opacity-100 translate-x-0'
-                          : 'text-muted-foreground opacity-0 group-hover:opacity-100 translate-x-1 group-hover:translate-x-0'
-                      }`}>{year}</span>
-                      {/* Dot */}
-                      <div className={`rounded-full transition-all duration-150 ${
-                        isActive ? 'w-2.5 h-2.5 bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.2)]' : 'w-1.5 h-1.5 bg-border group-hover:bg-muted-foreground'
-                      }`} />
-                    </div>
-                    {idx < yearsList.length - 1 && <div className={`w-px h-4 ${isActive ? 'bg-primary' : 'bg-border'} transition-colors`} />}
-                  </div>
+                <div
+                  key={year}
+                  onClick={() => scrollToYear(year)}
+                  className="relative flex items-center justify-end w-full cursor-pointer group"
+                >
+                  {/* Year label — left of dot, always shown for active, hover for others */}
+                  <span className={`absolute right-5 text-[11px] font-semibold whitespace-nowrap transition-all duration-150 ${
+                    isActive
+                      ? 'text-primary opacity-100'
+                      : 'text-muted-foreground opacity-0 group-hover:opacity-100'
+                  }`}>{year}</span>
+                  {/* Dot */}
+                  <div className={`relative z-10 rounded-full transition-all duration-200 ${
+                    isActive
+                      ? 'w-3 h-3 bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.25)]'
+                      : 'w-2 h-2 bg-border group-hover:bg-primary/60 group-hover:scale-110'
+                  }`} />
                 </div>
               );
             })}
