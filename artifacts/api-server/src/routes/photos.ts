@@ -69,7 +69,7 @@ router.get("/photos/on-this-day", async (req: any, res) => {
     for (const photo of (rows as any).rows ?? []) {
       const d = Number(photo.dow);
       if (!byDow[d]) byDow[d] = [];
-      if (byDow[d].length < 20) {
+      if (byDow[d].length < 10) {
         const url = generateSasUrl(photo.blob_name);
         byDow[d].push({
           id: photo.id,

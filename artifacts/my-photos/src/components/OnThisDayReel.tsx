@@ -209,27 +209,40 @@ const FADE_MS = 600;
 
 function DayTile({ day, isToday, onClick }: { day: DayGroup; isToday: boolean; onClick: () => void }) {
   const { photos, dayName } = day;
-  // Track current and previous index so both images are in the DOM during transition
   const [idx, setIdx] = useState(0);
-  const [prevIdx, setPrevIdx] = useState<number | null>(null);
-  const [transitioning, setTransitioning] = useState(false);
+  // prevUrl: the image fading OUT — starts at opacity 1, then we flip fadingOut to true
+  const [prevUrl, setPrevUrl] = useState<string | null>(null);
+  const [fadingOut, setFadingOut] = useState(false);
+  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (photos.length <= 1) return;
     const timer = setInterval(() => {
       setIdx(cur => {
         const next = (cur + 1) % photos.length;
-        setPrevIdx(cur);
-        setTransitioning(true);
-        setTimeout(() => {
-          setPrevIdx(null);
-          setTransitioning(false);
-        }, FADE_MS);
+        const prevSrc = photos[cur].thumbnailUrl || photos[cur].url;
+        // Step 1: mount prev image at full opacity (fadingOut=false)
+        setPrevUrl(prevSrc);
+        setFadingOut(false);
+        // Step 2: after two rAF ticks the browser has painted it at opacity:1,
+        //         now trigger the CSS transition to opacity:0
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = requestAnimationFrame(() => {
+            setFadingOut(true);
+            setTimeout(() => {
+              setPrevUrl(null);
+              setFadingOut(false);
+            }, FADE_MS);
+          });
+        });
         return next;
       });
     }, TILE_MS);
-    return () => clearInterval(timer);
-  }, [photos.length]);
+    return () => {
+      clearInterval(timer);
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const photo = photos[idx];
   const year = getYear(photo);
@@ -240,31 +253,27 @@ function DayTile({ day, isToday, onClick }: { day: DayGroup; isToday: boolean; o
       className="relative flex-shrink-0 cursor-pointer rounded-2xl overflow-hidden group"
       style={{ width: 210, height: 270 }}
     >
-      {/* Previous photo — fades out */}
-      {prevIdx !== null && (
-        <img
-          src={photos[prevIdx].thumbnailUrl || photos[prevIdx].url}
-          alt=""
-          className="absolute inset-0 w-full h-full object-cover"
-          style={{
-            opacity: transitioning ? 0 : 1,
-            transition: `opacity ${FADE_MS}ms ease`,
-          }}
-          draggable={false}
-        />
-      )}
-
-      {/* Current photo — fades in */}
+      {/* New photo underneath — always fully visible */}
       <img
         src={photo.thumbnailUrl || photo.url}
         alt={dayName}
         className="absolute inset-0 w-full h-full object-cover"
-        style={{
-          opacity: transitioning ? 1 : 1,
-          transition: `opacity ${FADE_MS}ms ease`,
-        }}
         draggable={false}
       />
+
+      {/* Previous photo on top — fades from 1 → 0 */}
+      {prevUrl && (
+        <img
+          src={prevUrl}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{
+            opacity: fadingOut ? 0 : 1,
+            transition: fadingOut ? `opacity ${FADE_MS}ms ease` : "none",
+          }}
+          draggable={false}
+        />
+      )}
 
       {/* Dark gradient — always on top of photos */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/15 to-transparent" />
