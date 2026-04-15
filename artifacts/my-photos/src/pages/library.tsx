@@ -188,6 +188,28 @@ export default function LibraryPage() {
       }
       return next;
     });
+    setSearchPhotos(prev => prev.filter((p: any) => p.id !== id));
+    queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
+  }, [queryClient]);
+
+  const handleBulkTrash = useCallback(async (ids: string[]) => {
+    await Promise.all(ids.map(id =>
+      fetch(`${API_BASE}/photos/${id}/trash`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ trashed: true }),
+      })
+    ));
+    setPhotosByMonth(prev => {
+      const idSet = new Set(ids);
+      const next: Record<string, any[]> = {};
+      for (const [month, ps] of Object.entries(prev)) {
+        next[month] = ps.filter((p: any) => !idSet.has(p.id));
+      }
+      return next;
+    });
+    setSearchPhotos(prev => { const idSet = new Set(ids); return prev.filter((p: any) => !idSet.has(p.id)); });
     queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
   }, [queryClient]);
 
@@ -334,6 +356,7 @@ export default function LibraryPage() {
                       dateField={sortOrder}
                       onHide={handleHidePhoto}
                       onPhotoTrash={handlePhotoTrashed}
+                      onBulkTrash={handleBulkTrash}
                       emptyMessage=""
                     />
                   </div>
@@ -357,6 +380,7 @@ export default function LibraryPage() {
                 dateField={sortOrder}
                 onHide={handleHidePhoto}
                 onPhotoTrash={handlePhotoTrashed}
+                onBulkTrash={handleBulkTrash}
                 emptyMessage="No photos match your search"
               />
             )}

@@ -110,6 +110,21 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
     });
   }, []);
 
+  // Keyboard shortcut: Delete / Backspace trashes selected photos
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (selectedIds.size === 0) return;
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      e.preventDefault();
+      handleBulkTrash();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIds, handleBulkTrash]);
+
   const handleOpenLightbox = useCallback((idx: number) => setLightboxIndex(idx), []);
 
   const handleBulkDownload = useCallback(async () => {
