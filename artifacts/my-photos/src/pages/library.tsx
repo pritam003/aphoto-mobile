@@ -180,6 +180,17 @@ export default function LibraryPage() {
     fetchMonthsList();
   };
 
+  const handlePhotoTrashed = useCallback((id: string) => {
+    setPhotosByMonth(prev => {
+      const next: Record<string, any[]> = {};
+      for (const [month, ps] of Object.entries(prev)) {
+        next[month] = ps.filter((p: any) => p.id !== id);
+      }
+      return next;
+    });
+    queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
+  }, [queryClient]);
+
   const handleHidePhoto = async (id: string) => {
     await fetch(`${API_BASE}/photos/${id}/hide`, {
       method: "PATCH",
@@ -322,6 +333,7 @@ export default function LibraryPage() {
                       photos={photos}
                       dateField={sortOrder}
                       onHide={handleHidePhoto}
+                      onPhotoTrash={handlePhotoTrashed}
                       emptyMessage=""
                     />
                   </div>
@@ -344,6 +356,7 @@ export default function LibraryPage() {
                 photos={displayPhotos}
                 dateField={sortOrder}
                 onHide={handleHidePhoto}
+                onPhotoTrash={handlePhotoTrashed}
                 emptyMessage="No photos match your search"
               />
             )}

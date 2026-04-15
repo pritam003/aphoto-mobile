@@ -9,9 +9,10 @@ interface LightboxProps {
   initialIndex: number;
   onClose: () => void;
   onPhotoChange?: (photo: any) => void;
+  onPhotoTrash?: (id: string) => void;
 }
 
-export default function Lightbox({ photos, initialIndex, onClose }: LightboxProps) {
+export default function Lightbox({ photos, initialIndex, onClose, onPhotoTrash }: LightboxProps) {
   const [index, setIndex] = useState(initialIndex);
   const [showInfo, setShowInfo] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -47,6 +48,7 @@ export default function Lightbox({ photos, initialIndex, onClose }: LightboxProp
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListPhotosQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
+        onPhotoTrash?.(photo.id);
         if (photos.length <= 1) onClose();
         else setIndex(i => Math.min(i, photos.length - 2));
       },

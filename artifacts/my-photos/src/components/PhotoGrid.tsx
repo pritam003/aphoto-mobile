@@ -15,9 +15,10 @@ interface PhotoGridProps {
   onBulkTrash?: (ids: string[]) => Promise<void>;
   onHide?: (photoId: string) => void;
   onBulkHide?: (ids: string[]) => Promise<void>;
+  onPhotoTrash?: (id: string) => void;
 }
 
-export default function PhotoGrid({ photos, emptyMessage = "No photos yet", dateField = "taken", onRemoveFromAlbum, onTrash, onBulkTrash, onHide, onBulkHide }: PhotoGridProps) {
+export default function PhotoGrid({ photos, emptyMessage = "No photos yet", dateField = "taken", onRemoveFromAlbum, onTrash, onBulkTrash, onHide, onBulkHide, onPhotoTrash }: PhotoGridProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBulkAlbumPicker, setShowBulkAlbumPicker] = useState(false);
@@ -141,6 +142,7 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
           photos={photos}
           initialIndex={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
+          onPhotoTrash={onPhotoTrash}
         />
       )}
 
