@@ -141,9 +141,9 @@ router.get("/photos/months", async (req: any, res) => {
           GROUP BY 1
           ORDER BY 1 DESC`,
     );
-    // Get up to 4 cover photos per month in one query using DISTINCT ON
+    // Get up to 6 cover photos per month (1 hero + 5 strip thumbnails)
     const coverRows = await db.execute(
-      sql`SELECT DISTINCT ON (year_month) year_month, blob_name
+      sql`SELECT year_month, blob_name
           FROM (
             SELECT
               TO_CHAR(DATE_TRUNC('month', COALESCE(taken_at, uploaded_at)), 'YYYY-MM') AS year_month,
@@ -155,14 +155,14 @@ router.get("/photos/months", async (req: any, res) => {
             FROM photos
             WHERE user_id = ${userId} AND trashed = false AND hidden = false
           ) sub
-          WHERE rn <= 4
+          WHERE rn <= 6
           ORDER BY year_month DESC, rn`,
     );
     // Group cover thumbnails by yearMonth
     const coversByMonth: Record<string, string[]> = {};
     for (const row of (coverRows as any).rows ?? []) {
       if (!coversByMonth[row.year_month]) coversByMonth[row.year_month] = [];
-      if (coversByMonth[row.year_month].length < 4) {
+      if (coversByMonth[row.year_month].length < 6) {
         coversByMonth[row.year_month].push(generateSasUrl(row.blob_name));
       }
     }
