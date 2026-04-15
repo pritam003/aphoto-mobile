@@ -203,26 +203,32 @@ function ReelOverlay({ day, onClose }: { day: DayGroup; onClose: () => void }) {
   );
 }
 
-// ── Day tile — auto-cycling with crossfade ────────────────────────────────────
-const TILE_MS = 2800;
+// ── Day tile — auto-cycling with true crossfade (both images mounted) ─────────
+const TILE_MS = 3000;
+const FADE_MS = 600;
 
 function DayTile({ day, isToday, onClick }: { day: DayGroup; isToday: boolean; onClick: () => void }) {
   const { photos, dayName } = day;
+  // Track current and previous index so both images are in the DOM during transition
   const [idx, setIdx] = useState(0);
-  const [fading, setFading] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [prevIdx, setPrevIdx] = useState<number | null>(null);
+  const [transitioning, setTransitioning] = useState(false);
 
-  // Auto-cycle
   useEffect(() => {
     if (photos.length <= 1) return;
-    timerRef.current = setInterval(() => {
-      setFading(true);
-      setTimeout(() => {
-        setIdx(i => (i + 1) % photos.length);
-        setFading(false);
-      }, 350);
+    const timer = setInterval(() => {
+      setIdx(cur => {
+        const next = (cur + 1) % photos.length;
+        setPrevIdx(cur);
+        setTransitioning(true);
+        setTimeout(() => {
+          setPrevIdx(null);
+          setTransitioning(false);
+        }, FADE_MS);
+        return next;
+      });
     }, TILE_MS);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    return () => clearInterval(timer);
   }, [photos.length]);
 
   const photo = photos[idx];
@@ -234,20 +240,33 @@ function DayTile({ day, isToday, onClick }: { day: DayGroup; isToday: boolean; o
       className="relative flex-shrink-0 cursor-pointer rounded-2xl overflow-hidden group"
       style={{ width: 210, height: 270 }}
     >
-      {/* Cycling photo with crossfade */}
+      {/* Previous photo — fades out */}
+      {prevIdx !== null && (
+        <img
+          src={photos[prevIdx].thumbnailUrl || photos[prevIdx].url}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{
+            opacity: transitioning ? 0 : 1,
+            transition: `opacity ${FADE_MS}ms ease`,
+          }}
+          draggable={false}
+        />
+      )}
+
+      {/* Current photo — fades in */}
       <img
-        key={photo.id}
         src={photo.thumbnailUrl || photo.url}
         alt={dayName}
-        className="absolute inset-0 w-full h-full object-cover transition-opacity duration-350"
-        style={{ opacity: fading ? 0 : 1 }}
+        className="absolute inset-0 w-full h-full object-cover"
+        style={{
+          opacity: transitioning ? 1 : 1,
+          transition: `opacity ${FADE_MS}ms ease`,
+        }}
         draggable={false}
       />
 
-      {/* Subtle scale on hover */}
-      <div className="absolute inset-0 group-hover:scale-105 transition-transform duration-500 pointer-events-none" />
-
-      {/* Dark gradient */}
+      {/* Dark gradient — always on top of photos */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/15 to-transparent" />
 
       {/* Today badge */}
@@ -263,11 +282,12 @@ function DayTile({ day, isToday, onClick }: { day: DayGroup; isToday: boolean; o
           {photos.slice(0, 5).map((_, i) => (
             <div
               key={i}
-              className="rounded-full transition-all duration-300"
+              className="rounded-full"
               style={{
                 width: i === idx ? 12 : 5,
                 height: 5,
                 background: i === idx ? "white" : "rgba(255,255,255,0.45)",
+                transition: "width 0.3s ease, background 0.3s ease",
               }}
             />
           ))}
@@ -277,14 +297,14 @@ function DayTile({ day, isToday, onClick }: { day: DayGroup; isToday: boolean; o
         </div>
       )}
 
-      {/* Thin progress bar at very bottom edge */}
+      {/* Thin progress bar */}
       {photos.length > 1 && (
         <div className="absolute bottom-0 inset-x-0 h-0.5 bg-white/20">
           <div
             className="h-full bg-white/70 rounded-full"
             style={{
               width: `${((idx + 1) / photos.length) * 100}%`,
-              transition: "width 0.3s ease",
+              transition: "width 0.4s ease",
             }}
           />
         </div>
