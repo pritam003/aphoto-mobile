@@ -1,7 +1,68 @@
 import { Router } from "express";
 import { getContainerClient } from "../lib/azure-storage.js";
+import { db, albumSharesTable, photosTable, albumPhotosTable } from "@workspace/db";
+import { eq, and, isNull } from "drizzle-orm";
 
 const router = Router();
+
+// ── Public blob proxy for shared album media (range-request aware for video) ───
+router.get("/shared-blob/:shareToken/*blobName", async (req, res) => {
+  const { shareToken } = req.params;
+  const raw = req.params.blobName;
+  const blobName = Array.isArray(raw) ? raw.join("/") : String(raw);
+
+  // Verify the share token is valid and not revoked
+  const [share] = await db
+    .select()
+    .from(albumSharesTable)
+    .where(and(eq(albumSharesTable.token, shareToken), isNull(albumSharesTable.revokedAt)));
+  if (!share) return res.status(403).json({ error: "Invalid or revoked share link" });
+
+  try {
+    const containerClient = getContainerClient();
+    const blobClient = containerClient.getBlobClient(blobName);
+    const rangeHeader = req.headers.range;
+
+    if (rangeHeader) {
+      const props = await blobClient.getProperties();
+      const totalSize = props.contentLength!;
+      const contentType = props.contentType || "application/octet-stream";
+
+      const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+      if (!match) return res.status(416).set("Content-Range", `bytes */${totalSize}`).end();
+
+      const start = parseInt(match[1], 10);
+      const end = match[2] ? parseInt(match[2], 10) : totalSize - 1;
+      if (start >= totalSize || end >= totalSize) {
+        return res.status(416).set("Content-Range", `bytes */${totalSize}`).end();
+      }
+
+      const chunkSize = end - start + 1;
+      const downloadResponse = await blobClient.download(start, chunkSize);
+      if (!downloadResponse.readableStreamBody) return res.status(404).end();
+
+      res.status(206);
+      res.setHeader("Content-Range", `bytes ${start}-${end}/${totalSize}`);
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Content-Length", chunkSize);
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      downloadResponse.readableStreamBody.pipe(res);
+    } else {
+      const downloadResponse = await blobClient.download();
+      if (!downloadResponse.readableStreamBody) return res.status(404).end();
+
+      res.setHeader("Content-Type", downloadResponse.contentType || "application/octet-stream");
+      if (downloadResponse.contentLength) res.setHeader("Content-Length", downloadResponse.contentLength);
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      downloadResponse.readableStreamBody.pipe(res);
+    }
+  } catch (err: any) {
+    if (err?.statusCode === 404) return res.status(404).json({ error: "Not found" });
+    return res.status(500).json({ error: "Failed to fetch blob" });
+  }
+});
 
 // Proxy blob downloads — authenticates via DefaultAzureCredential, no SAS or account key needed.
 // Supports HTTP Range requests so browsers can stream video (seeking, progressive load).
