@@ -131,7 +131,8 @@ router.get("/photos/stats", async (req: any, res) => {
 router.get("/photos/months", async (req: any, res) => {
   const userId = req.currentUser.id;
   try {
-    const rows = await db.execute(
+    // Get counts per month
+    const countRows = await db.execute(
       sql`SELECT
             TO_CHAR(DATE_TRUNC('month', COALESCE(taken_at, uploaded_at)), 'YYYY-MM') AS year_month,
             COUNT(*) AS count
@@ -140,9 +141,35 @@ router.get("/photos/months", async (req: any, res) => {
           GROUP BY 1
           ORDER BY 1 DESC`,
     );
-    const months = ((rows as any).rows ?? []).map((r: any) => ({
+    // Get up to 4 cover photos per month in one query using DISTINCT ON
+    const coverRows = await db.execute(
+      sql`SELECT DISTINCT ON (year_month) year_month, blob_name
+          FROM (
+            SELECT
+              TO_CHAR(DATE_TRUNC('month', COALESCE(taken_at, uploaded_at)), 'YYYY-MM') AS year_month,
+              blob_name,
+              ROW_NUMBER() OVER (
+                PARTITION BY DATE_TRUNC('month', COALESCE(taken_at, uploaded_at))
+                ORDER BY COALESCE(taken_at, uploaded_at) DESC
+              ) AS rn
+            FROM photos
+            WHERE user_id = ${userId} AND trashed = false AND hidden = false
+          ) sub
+          WHERE rn <= 4
+          ORDER BY year_month DESC, rn`,
+    );
+    // Group cover thumbnails by yearMonth
+    const coversByMonth: Record<string, string[]> = {};
+    for (const row of (coverRows as any).rows ?? []) {
+      if (!coversByMonth[row.year_month]) coversByMonth[row.year_month] = [];
+      if (coversByMonth[row.year_month].length < 4) {
+        coversByMonth[row.year_month].push(generateSasUrl(row.blob_name));
+      }
+    }
+    const months = ((countRows as any).rows ?? []).map((r: any) => ({
       yearMonth: r.year_month,
       count: Number(r.count),
+      covers: coversByMonth[r.year_month] ?? [],
     }));
     res.json({ months });
   } catch {

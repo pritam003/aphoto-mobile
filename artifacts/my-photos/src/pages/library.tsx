@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { Search, X, ChevronDown, ImageIcon } from "lucide-react";
+import { Search, X, ImageIcon } from "lucide-react";
 import { useListPhotos, getListPhotosQueryKey } from "@workspace/api-client-react";
 import PhotoGrid from "@/components/PhotoGrid";
 import { useQueryClient } from "@tanstack/react-query";
@@ -27,7 +27,7 @@ export default function LibraryPage() {
   const queryClient = useQueryClient();
 
   // ── Month-based state (non-search mode) ────────────────────────────────────
-  const [monthsList, setMonthsList] = useState<{ yearMonth: string; count: number }[]>([]);
+  const [monthsList, setMonthsList] = useState<{ yearMonth: string; count: number; covers: string[] }[]>([]);
   const [photosByMonth, setPhotosByMonth] = useState<Record<string, any[]>>({});
   const [loadingMonth, setLoadingMonth] = useState<string | null>(null);
   const [monthsLoading, setMonthsLoading] = useState(true);
@@ -248,31 +248,48 @@ export default function LibraryPage() {
 
             {/* Unloaded months — shown when not searching */}
             {!debouncedSearch && unloadedMonths.length > 0 && (
-              <div className="mt-6 space-y-2">
-                <p className="text-xs text-muted-foreground px-1 mb-3">Older months — click to load</p>
-                {unloadedMonths.map(m => (
-                  <button
-                    key={m.yearMonth}
-                    onClick={() => loadMonth(m.yearMonth)}
-                    disabled={loadingMonth === m.yearMonth}
-                    className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-border bg-muted/40 hover:bg-muted transition-colors group disabled:opacity-60"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center">
-                        <ImageIcon className="w-4 h-4 text-muted-foreground" />
+              <div className="mt-8">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 px-1 mb-4">More to explore</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {unloadedMonths.map(m => (
+                    <button
+                      key={m.yearMonth}
+                      onClick={() => loadMonth(m.yearMonth)}
+                      disabled={loadingMonth === m.yearMonth}
+                      className="group relative rounded-2xl overflow-hidden border border-border bg-muted/20 hover:border-primary/30 hover:shadow-md transition-all text-left disabled:opacity-70"
+                    >
+                      {/* Photo mosaic */}
+                      <div className="grid grid-cols-2 gap-0.5 h-36">
+                        {m.covers.length >= 4 ? (
+                          m.covers.map((src, i) => (
+                            <img key={i} src={src} className="w-full h-full object-cover" />
+                          ))
+                        ) : m.covers.length > 0 ? (
+                          <img src={m.covers[0]} className="col-span-2 w-full h-full object-cover" />
+                        ) : (
+                          <div className="col-span-2 w-full h-full bg-muted flex items-center justify-center">
+                            <ImageIcon className="w-8 h-8 text-muted-foreground/30" />
+                          </div>
+                        )}
                       </div>
-                      <div className="text-left">
-                        <p className="text-sm font-medium text-foreground">{formatMonthLabel(m.yearMonth)}</p>
-                        <p className="text-xs text-muted-foreground">{m.count} {m.count === 1 ? "photo" : "photos"}</p>
+
+                      {/* Footer */}
+                      <div className="flex items-center justify-between px-3.5 py-2.5">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{formatMonthLabel(m.yearMonth)}</p>
+                          <p className="text-xs text-muted-foreground">{m.count.toLocaleString()} {m.count === 1 ? "photo" : "photos"}</p>
+                        </div>
+                        {loadingMonth === m.yearMonth ? (
+                          <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <div className="text-[11px] font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                            Load
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    {loadingMonth === m.yearMonth ? (
-                      <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-                    )}
-                  </button>
-                ))}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </>
