@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { Sparkles, X, ChevronLeft, ChevronRight, Pause, Play } from "lucide-react";
+import { useRef, useState } from "react";
+import { ChevronRight, ChevronLeft, X } from "lucide-react";
 
 interface ReelPhoto {
   id: string;
@@ -15,209 +15,144 @@ interface OnThisDayReelProps {
   onDismiss: () => void;
 }
 
-const SLIDE_DURATION = 3000; // ms per slide
+function getYear(photo: ReelPhoto) {
+  const d = photo.takenAt ?? photo.uploadedAt;
+  if (!d) return null;
+  return new Date(d).getFullYear();
+}
 
 export default function OnThisDayReel({ photos, onDismiss }: OnThisDayReelProps) {
-  const [current, setCurrent] = useState(0);
-  const [paused, setPaused] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [animDir, setAnimDir] = useState<"next" | "prev">("next");
-  const [visible, setVisible] = useState(true); // for exit animation
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(true);
+  const [dismissed, setDismissed] = useState(false);
 
-  const goTo = useCallback((idx: number, dir: "next" | "prev") => {
-    setAnimDir(dir);
-    setCurrent(idx);
-    setProgress(0);
-  }, []);
-
-  const goNext = useCallback(() => {
-    goTo((current + 1) % photos.length, "next");
-  }, [current, photos.length, goTo]);
-
-  const goPrev = useCallback(() => {
-    goTo((current - 1 + photos.length) % photos.length, "prev");
-  }, [current, photos.length, goTo]);
-
-  // Auto-advance
-  useEffect(() => {
-    if (paused || photos.length <= 1) return;
-    intervalRef.current = setInterval(goNext, SLIDE_DURATION);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [paused, goNext, photos.length]);
-
-  // Progress bar tick (60 fps feel)
-  useEffect(() => {
-    if (paused) return;
-    setProgress(0);
-    const step = 100 / (SLIDE_DURATION / 50);
-    progressRef.current = setInterval(() => {
-      setProgress(p => Math.min(p + step, 100));
-    }, 50);
-    return () => { if (progressRef.current) clearInterval(progressRef.current); };
-  }, [current, paused]);
-
-  const handleDismiss = () => {
-    setVisible(false);
-    setTimeout(onDismiss, 300);
+  const updateScrollButtons = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 8);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
   };
 
-  const photo = photos[current];
-  const year = new Date(photo.takenAt ?? photo.uploadedAt ?? "").getFullYear();
-  const dateLabel = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  const scroll = (dir: "left" | "right") => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir === "right" ? 340 : -340, behavior: "smooth" });
+  };
 
-  if (!visible) return null;
+  const handleDismiss = () => {
+    setDismissed(true);
+    setTimeout(onDismiss, 250);
+  };
+
+  const today = new Date();
+  const dateLabel = today.toLocaleDateString("en-US", { month: "long", day: "numeric" });
 
   return (
     <div
-      className="mb-6 rounded-2xl border border-border bg-card overflow-hidden transition-all duration-300"
-      style={{ opacity: visible ? 1 : 0 }}
+      className="mb-6 transition-all duration-250"
+      style={{ opacity: dismissed ? 0 : 1, transform: dismissed ? "translateY(-8px)" : "translateY(0)" }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-primary animate-pulse" />
-          <span className="text-sm font-semibold text-foreground">On this day</span>
-          <span className="text-xs text-muted-foreground">— {dateLabel} in past years</span>
+      {/* Section header */}
+      <div className="flex items-center justify-between mb-2.5 px-0.5">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">On this day</h2>
+          <p className="text-xs text-muted-foreground">{dateLabel} · Over the years</p>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setPaused(p => !p)}
-            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-            title={paused ? "Play" : "Pause"}
-          >
-            {paused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
-          </button>
-          <button
-            onClick={handleDismiss}
-            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Reel area */}
-      <div
-        className="relative flex items-center justify-center py-5 px-4 bg-gradient-to-b from-muted/30 to-background"
-        onMouseEnter={() => setPaused(true)}
-        onMouseLeave={() => setPaused(false)}
-      >
-        {/* Stacked background cards */}
-        {photos.length > 2 && (
-          <div
-            className="absolute rounded-xl overflow-hidden shadow-sm"
-            style={{
-              width: 180,
-              height: 180,
-              transform: "rotate(-6deg) translateY(8px) translateX(-6px)",
-              zIndex: 1,
-            }}
-          >
-            <img
-              src={photos[(current + 2) % photos.length].thumbnailUrl || photos[(current + 2) % photos.length].url}
-              className="w-full h-full object-cover opacity-50"
-              alt=""
-            />
-          </div>
-        )}
-        {photos.length > 1 && (
-          <div
-            className="absolute rounded-xl overflow-hidden shadow-md"
-            style={{
-              width: 195,
-              height: 195,
-              transform: "rotate(-3deg) translateY(4px) translateX(-3px)",
-              zIndex: 2,
-            }}
-          >
-            <img
-              src={photos[(current + 1) % photos.length].thumbnailUrl || photos[(current + 1) % photos.length].url}
-              className="w-full h-full object-cover opacity-70"
-              alt=""
-            />
-          </div>
-        )}
-
-        {/* Active card */}
-        <div
-          key={`${photo.id}-${current}`}
-          className="relative rounded-2xl overflow-hidden shadow-2xl"
-          style={{
-            width: 210,
-            height: 210,
-            zIndex: 10,
-            animation: `reel-${animDir} 0.35s cubic-bezier(0.34,1.56,0.64,1)`,
-          }}
+        <button
+          onClick={handleDismiss}
+          className="p-1.5 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          title="Dismiss"
         >
-          <img
-            src={photo.thumbnailUrl || photo.url}
-            alt={photo.filename}
-            className="w-full h-full object-cover"
-          />
-          {/* Year badge */}
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent pt-8 pb-3 px-3">
-            <p className="text-white font-bold text-lg leading-none">{year}</p>
-            <p className="text-white/70 text-xs mt-0.5">{dateLabel}</p>
-          </div>
-        </div>
+          <X className="w-4 h-4" />
+        </button>
+      </div>
 
-        {/* Prev / Next arrows */}
-        {photos.length > 1 && (
-          <>
-            <button
-              onClick={goPrev}
-              className="absolute left-3 p-1.5 rounded-full bg-black/30 text-white hover:bg-black/50 transition-colors z-20"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              onClick={goNext}
-              className="absolute right-3 p-1.5 rounded-full bg-black/30 text-white hover:bg-black/50 transition-colors z-20"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </>
+      {/* Horizontal card strip */}
+      <div className="relative group">
+        {/* Left arrow */}
+        {canScrollLeft && (
+          <button
+            onClick={() => scroll("left")}
+            className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-3 z-10
+                       w-9 h-9 rounded-full bg-white shadow-lg flex items-center justify-center
+                       text-gray-700 hover:bg-gray-50 hover:shadow-xl transition-all
+                       opacity-0 group-hover:opacity-100"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
         )}
-      </div>
 
-      {/* Progress bar + dots */}
-      <div className="px-4 pb-3">
-        {/* Thin progress bar for current slide */}
-        <div className="w-full h-0.5 bg-muted rounded-full mb-2 overflow-hidden">
+        {/* Right arrow */}
+        {canScrollRight && (
+          <button
+            onClick={() => scroll("right")}
+            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-3 z-10
+                       w-9 h-9 rounded-full bg-white shadow-lg flex items-center justify-center
+                       text-gray-700 hover:bg-gray-50 hover:shadow-xl transition-all
+                       opacity-0 group-hover:opacity-100"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+        )}
+
+        {/* Scrollable row */}
+        <div
+          ref={scrollRef}
+          onScroll={updateScrollButtons}
+          className="flex gap-3 overflow-x-auto scroll-smooth"
+          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        >
+          {/* First card: wider "header" card */}
           <div
-            className="h-full bg-primary rounded-full transition-none"
-            style={{ width: `${paused ? progress : progress}%` }}
-          />
-        </div>
-        {/* Dots */}
-        <div className="flex items-center justify-center gap-1.5">
-          {photos.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => goTo(i, i > current ? "next" : "prev")}
-              className={`rounded-full transition-all duration-200 ${
-                i === current
-                  ? "w-4 h-1.5 bg-primary"
-                  : "w-1.5 h-1.5 bg-muted-foreground/30 hover:bg-muted-foreground/60"
-              }`}
+            className="relative flex-shrink-0 rounded-2xl overflow-hidden cursor-pointer hover:scale-[1.02] transition-transform duration-200"
+            style={{ width: 220, height: 160 }}
+          >
+            <img
+              src={photos[0].thumbnailUrl || photos[0].url}
+              alt={photos[0].filename}
+              className="w-full h-full object-cover"
+              draggable={false}
             />
-          ))}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+            <div className="absolute bottom-0 left-0 p-3.5">
+              <p className="text-white font-bold text-base leading-tight">
+                {dateLabel.split(" ")[0]} memories
+              </p>
+              <p className="text-white/75 text-xs mt-0.5 font-medium">Over the years</p>
+            </div>
+          </div>
+
+          {/* Remaining cards */}
+          {photos.slice(1).map((photo) => {
+            const year = getYear(photo);
+            return (
+              <div
+                key={photo.id}
+                className="relative flex-shrink-0 rounded-2xl overflow-hidden cursor-pointer hover:scale-[1.02] transition-transform duration-200"
+                style={{ width: 200, height: 160 }}
+              >
+                <img
+                  src={photo.thumbnailUrl || photo.url}
+                  alt={photo.filename}
+                  className="w-full h-full object-cover"
+                  draggable={false}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+                <div className="absolute bottom-0 left-0 p-3">
+                  <p className="text-white font-semibold text-sm leading-tight">Revisit the moment</p>
+                  {year && (
+                    <p className="text-white/70 text-xs mt-0.5">{year}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Spacer so last card isn't flush against edge */}
+          <div className="flex-shrink-0 w-1" />
         </div>
       </div>
-
-      {/* CSS keyframes injected inline */}
-      <style>{`
-        @keyframes reel-next {
-          from { opacity: 0; transform: scale(0.82) translateX(30px) rotate(4deg); }
-          to   { opacity: 1; transform: scale(1)    translateX(0)     rotate(0deg); }
-        }
-        @keyframes reel-prev {
-          from { opacity: 0; transform: scale(0.82) translateX(-30px) rotate(-4deg); }
-          to   { opacity: 1; transform: scale(1)    translateX(0)      rotate(0deg); }
-        }
-      `}</style>
     </div>
   );
 }
