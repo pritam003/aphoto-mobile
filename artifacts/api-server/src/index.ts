@@ -34,7 +34,6 @@ await db.execute(sql`
 // Add new columns to existing tables (safe no-ops if already present)
 await db.execute(sql`ALTER TABLE album_shares ADD COLUMN IF NOT EXISTS name TEXT`);
 await db.execute(sql`ALTER TABLE album_shares ADD COLUMN IF NOT EXISTS access_code_hash TEXT NOT NULL DEFAULT ''`);
-`);
 
 app.listen(port, (err) => {
   if (err) {
