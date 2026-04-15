@@ -62,6 +62,7 @@ router.get("/photos/on-this-day", async (req: any, res) => {
           WHERE user_id = ${userId}
             AND trashed = false
             AND hidden = false
+            AND content_type NOT LIKE 'video/%'
             AND EXTRACT(YEAR FROM COALESCE(taken_at, uploaded_at)) < ${thisYear}
           ORDER BY COALESCE(taken_at, uploaded_at) DESC`,
     );
