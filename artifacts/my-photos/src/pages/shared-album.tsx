@@ -8,8 +8,16 @@ interface Photo {
   url: string;
   thumbnailUrl?: string;
   filename: string;
+  contentType?: string;
   takenAt?: string;
   uploadedAt: string;
+}
+
+function isVideo(photo: Photo) {
+  return (
+    photo.contentType?.startsWith("video/") ||
+    /\.(mp4|mov|webm|avi|mkv)$/i.test(photo.filename ?? "")
+  );
 }
 
 interface SharedAlbumData {
@@ -218,12 +226,30 @@ export default function SharedAlbumPage() {
                 onClick={() => setLightbox(photo)}
                 className="relative aspect-square rounded-sm overflow-hidden bg-muted group"
               >
-                <img
-                  src={photo.thumbnailUrl ?? photo.url}
-                  alt={photo.filename}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                  loading="lazy"
-                />
+                {isVideo(photo) ? (
+                  <>
+                    <video
+                      src={photo.url}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                      muted
+                      playsInline
+                      preload="metadata"
+                    />
+                    {/* Play badge */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-9 h-9 rounded-full bg-black/55 flex items-center justify-center">
+                        <svg className="w-4 h-4 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <img
+                    src={photo.thumbnailUrl ?? photo.url}
+                    alt={photo.filename}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                    loading="lazy"
+                  />
+                )}
               </button>
             ))}
           </div>
@@ -258,11 +284,21 @@ export default function SharedAlbumPage() {
               ›
             </button>
           )}
-          <img
-            src={lightbox.url}
-            alt={lightbox.filename}
-            className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl"
-          />
+          {isVideo(lightbox) ? (
+            <video
+              src={lightbox.url}
+              className="max-h-[90vh] max-w-[90vw] rounded-lg shadow-2xl"
+              controls
+              autoPlay
+              playsInline
+            />
+          ) : (
+            <img
+              src={lightbox.url}
+              alt={lightbox.filename}
+              className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl"
+            />
+          )}
           <div className="absolute bottom-4 left-0 right-0 text-center">
             <p className="text-white/70 text-sm">{lightbox.filename}</p>
           </div>
