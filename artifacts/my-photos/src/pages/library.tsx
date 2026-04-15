@@ -75,11 +75,25 @@ export default function LibraryPage() {
       .catch(() => setLoadingMonth(null));
   }, []);
 
-  // Merge all loaded months into one sorted array for PhotoGrid
+  // Merge all loaded months into one sorted array for PhotoGrid (search only)
   const allPhotos = useMemo(() => {
     const sorted = Object.keys(photosByMonth).sort((a, b) => b.localeCompare(a));
     return sorted.flatMap(m => photosByMonth[m]);
   }, [photosByMonth]);
+
+  // Sorted list of loaded months (newest first)
+  const loadedMonths = useMemo(
+    () => Object.keys(photosByMonth).sort((a, b) => b.localeCompare(a)),
+    [photosByMonth],
+  );
+
+  const collapseMonth = useCallback((yearMonth: string) => {
+    setPhotosByMonth(prev => {
+      const next = { ...prev };
+      delete next[yearMonth];
+      return next;
+    });
+  }, []);
 
   // Which months are not yet loaded
   const unloadedMonths = useMemo(
@@ -155,6 +169,8 @@ export default function LibraryPage() {
 
   const isInitialLoading = monthsLoading && Object.keys(photosByMonth).length === 0 && !debouncedSearch;
   const displayPhotos = debouncedSearch ? searchPhotos : allPhotos;
+  // First loaded month is auto-loaded and cannot be collapsed
+  const firstMonth = monthsList[0]?.yearMonth;
 
   return (
     <div
@@ -226,12 +242,44 @@ export default function LibraryPage() {
               <OnThisDayReel days={memoryDays} todayDow={memoryTodayDow} />
             )}
 
-            <PhotoGrid
-              photos={displayPhotos}
-              dateField={sortOrder}
-              onHide={handleHidePhoto}
-              emptyMessage={debouncedSearch ? "No photos match your search" : "Upload your first photo using the button in the sidebar or by dropping files here"}
-            />
+            {/* Per-month photo grids */}
+            {!debouncedSearch && loadedMonths.map((ym, i) => (
+              <div key={ym} className="mb-2">
+                <div className="flex items-center justify-between mb-1 pt-1">
+                  <div className="flex items-baseline gap-2">
+                    <h2 className="text-base font-bold text-foreground">{formatMonthLabel(ym)}</h2>
+                    <span className="text-xs text-muted-foreground">
+                      {photosByMonth[ym].length.toLocaleString()} photos
+                    </span>
+                  </div>
+                  {/* Don't show Show less for the auto-loaded first month if it's the only one */}
+                  {!(i === 0 && loadedMonths.length === 1) && (
+                    <button
+                      onClick={() => collapseMonth(ym)}
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
+                    >
+                      Show less
+                    </button>
+                  )}
+                </div>
+                <PhotoGrid
+                  photos={photosByMonth[ym]}
+                  dateField={sortOrder}
+                  onHide={handleHidePhoto}
+                  emptyMessage=""
+                />
+              </div>
+            ))}
+
+            {/* Search results */}
+            {debouncedSearch && (
+              <PhotoGrid
+                photos={displayPhotos}
+                dateField={sortOrder}
+                onHide={handleHidePhoto}
+                emptyMessage="No photos match your search"
+              />
+            )}
 
             {/* Search pagination */}
             {debouncedSearch && searchHasMore && (
