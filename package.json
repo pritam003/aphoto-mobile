@@ -16,5 +16,12 @@
   "dependencies": {
     "@tailwindcss/oxide-darwin-arm64": "4.2.1",
     "lightningcss-darwin-arm64": "1.32.0"
+  },
+  "pnpm": {
+    "supportedArchitectures": {
+      "os": ["current", "linux"],
+      "cpu": ["current", "x64"],
+      "libc": ["current", "musl"]
+    }
   }
 }
