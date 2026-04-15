@@ -189,7 +189,7 @@ export default function AlbumDetailPage() {
                   onClick={() => setDisplayLimit(l => l + 50)}
                   className="px-5 py-2 text-sm rounded-xl border border-border hover:bg-muted transition-colors"
                 >
-                  Show 50 more ({photos.length - displayLimit} remaining)
+                  Show more
                 </button>
               </div>
             )}
@@ -248,7 +248,7 @@ export default function AlbumDetailPage() {
                         onClick={() => setPickerLimit(l => l + 50)}
                         className="px-4 py-2 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
                       >
-                        Show 50 more ({libraryPhotos.length - pickerLimit} remaining)
+                        Show more
                       </button>
                     </div>
                   )}
