@@ -40,6 +40,15 @@ export const albumPhotosTable = pgTable("album_photos", {
   photoId: uuid("photo_id").notNull().references(() => photosTable.id, { onDelete: "cascade" }),
 });
 
+export const albumSharesTable = pgTable("album_shares", {
+  token: text("token").primaryKey(),
+  albumId: uuid("album_id").notNull().references(() => albumsTable.id, { onDelete: "cascade" }),
+  createdBy: text("created_by").notNull(),
+  permission: text("permission").notNull().default("view"), // 'view' | 'contribute'
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const shareLinksTable = pgTable("share_links", {
   token: text("token").primaryKey(),
   photoId: uuid("photo_id").notNull().references(() => photosTable.id, { onDelete: "cascade" }),
@@ -60,5 +69,6 @@ export type Photo = typeof photosTable.$inferSelect;
 export type Album = typeof albumsTable.$inferSelect;
 export type AlbumPhoto = typeof albumPhotosTable.$inferSelect;
 export type ShareLink = typeof shareLinksTable.$inferSelect;
+export type AlbumShare = typeof albumSharesTable.$inferSelect;
 export type InsertPhoto = z.infer<typeof insertPhotoSchema>;
 export type InsertAlbum = z.infer<typeof insertAlbumSchema>;

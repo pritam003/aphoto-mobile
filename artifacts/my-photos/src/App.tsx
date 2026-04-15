@@ -11,6 +11,7 @@ import TrashPage from "@/pages/trash";
 import ArchivePage from "@/pages/archive";
 import LoginPage from "@/pages/login";
 import SharePage from "@/pages/share";
+import SharedAlbumPage from "@/pages/shared-album";
 import NotFound from "@/pages/not-found";
 import { useAuth } from "@/hooks/useAuth";
 import { ImportProvider } from "@/lib/importContext";
@@ -90,6 +91,7 @@ function Router() {
     <Switch>
       <Route path="/login" component={LoginPage} />
       <Route path="/share/:token" component={SharePage} />
+      <Route path="/shared/album/:token" component={SharedAlbumPage} />
       <Route>
         <AuthGuard>
           <AppLayout />

@@ -1,6 +1,7 @@
 import { useRoute, useLocation } from "wouter";
-import { ArrowLeft, Pencil, Check, Upload, Plus, X } from "lucide-react";
+import { ArrowLeft, Pencil, Check, Upload, Plus, X, Share2 } from "lucide-react";
 import GoogleImportModal from "@/components/GoogleImportModal";
+import ShareAlbumModal from "@/components/ShareAlbumModal";
 import { useState } from "react";
 import { useGetAlbum, useListAlbumPhotos, useUpdateAlbum, useListPhotos, useAddPhotoToAlbum, useRemovePhotoFromAlbum, useTrashPhoto, getListAlbumsQueryKey, getListAlbumPhotosQueryKey, getListPhotosQueryKey, getGetPhotoStatsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -18,6 +19,7 @@ export default function AlbumDetailPage() {
   const [showPicker, setShowPicker] = useState(false);
   const [pickerLimit, setPickerLimit] = useState(50);
   const [showGoogleImport, setShowGoogleImport] = useState(false);
+  const [showShare, setShowShare] = useState(false);
   const [sortOrder, setSortOrder] = useState<"taken" | "uploaded">("taken");
   const [displayLimit, setDisplayLimit] = useState(50);
   const queryClient = useQueryClient();
@@ -160,6 +162,12 @@ export default function AlbumDetailPage() {
           Import from Google
         </button>
         <button
+          onClick={() => setShowShare(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+        >
+          <Share2 className="w-4 h-4" /> Share
+        </button>
+        <button
           onClick={() => setShowUpload(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
         >
@@ -264,5 +272,13 @@ export default function AlbumDetailPage() {
         </div>
       )}
     </div>
+
+      {showShare && (
+        <ShareAlbumModal
+          albumId={id}
+          albumName={album?.name ?? ""}
+          onClose={() => setShowShare(false)}
+        />
+      )}
   );
 }
