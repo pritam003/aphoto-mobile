@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { Search, X, ImageIcon } from "lucide-react";
 import { useListPhotos, getListPhotosQueryKey } from "@workspace/api-client-react";
 import PhotoGrid from "@/components/PhotoGrid";
@@ -242,75 +242,88 @@ export default function LibraryPage() {
               <OnThisDayReel days={memoryDays} todayDow={memoryTodayDow} />
             )}
 
-            {/* Unified month list — each month is expanded (grid) or collapsed (card), in place */}
-            {!debouncedSearch && monthsList.map((m) => {
-              const isLoaded = m.yearMonth in photosByMonth;
-              const isLoading = loadingMonth === m.yearMonth;
-
-              if (isLoaded) {
-                // Expanded: show photo grid with header
-                return (
-                  <div key={m.yearMonth} className="mb-4">
-                    <div className="flex items-center justify-between mb-1 pt-1">
-                      <div className="flex items-baseline gap-2">
-                        <h2 className="text-base font-bold text-foreground">{formatMonthLabel(m.yearMonth)}</h2>
-                        <span className="text-xs text-muted-foreground">
-                          {photosByMonth[m.yearMonth].length.toLocaleString()} photos
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => collapseMonth(m.yearMonth)}
-                        className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
-                      >
-                        Show less
-                      </button>
-                    </div>
-                    <PhotoGrid
-                      photos={photosByMonth[m.yearMonth]}
-                      dateField={sortOrder}
-                      onHide={handleHidePhoto}
-                      emptyMessage=""
-                    />
-                  </div>
-                );
+            {/* Month cards grid — 3 per row; clicking a tile expands photos below that row */}
+            {!debouncedSearch && (() => {
+              // Chunk monthsList into rows of 3 (matches lg:grid-cols-3)
+              const rows: typeof monthsList[] = [];
+              for (let i = 0; i < monthsList.length; i += 3) {
+                rows.push(monthsList.slice(i, i + 3));
               }
-
-              // Collapsed: show mosaic card
-              return (
-                <div key={m.yearMonth} className="mb-4">
-                  <button
-                    onClick={() => loadMonth(m.yearMonth)}
-                    disabled={isLoading}
-                    className="group w-full rounded-2xl overflow-hidden border border-border bg-muted/20 hover:border-primary/30 hover:shadow-md transition-all text-left disabled:opacity-70"
-                  >
-                    <div className="grid grid-cols-2 gap-0.5 h-36">
-                      {m.covers.length >= 4 ? (
-                        m.covers.map((src, i) => (
-                          <img key={i} src={src} className="w-full h-full object-cover" />
-                        ))
-                      ) : m.covers.length > 0 ? (
-                        <img src={m.covers[0]} className="col-span-2 w-full h-full object-cover" />
-                      ) : (
-                        <div className="col-span-2 w-full h-full bg-muted flex items-center justify-center">
-                          <ImageIcon className="w-8 h-8 text-muted-foreground/30" />
+              return rows.map((row, rowIdx) => {
+                const expandedInRow = row.filter(m => m.yearMonth in photosByMonth);
+                return (
+                  <React.Fragment key={rowIdx}>
+                    {/* Card row */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                      {row.map((m) => {
+                        const isLoaded = m.yearMonth in photosByMonth;
+                        const isLoading = loadingMonth === m.yearMonth;
+                        return (
+                          <button
+                            key={m.yearMonth}
+                            onClick={() => isLoaded ? collapseMonth(m.yearMonth) : loadMonth(m.yearMonth)}
+                            disabled={isLoading}
+                            className={`group relative rounded-2xl overflow-hidden border bg-muted/20 hover:shadow-md transition-all text-left disabled:opacity-70 ${isLoaded ? 'border-primary/40 ring-2 ring-primary/20' : 'border-border hover:border-primary/30'}`}
+                          >
+                            <div className="grid grid-cols-2 gap-0.5 h-36">
+                              {m.covers.length >= 4 ? (
+                                m.covers.map((src, i) => (
+                                  <img key={i} src={src} className="w-full h-full object-cover" />
+                                ))
+                              ) : m.covers.length > 0 ? (
+                                <img src={m.covers[0]} className="col-span-2 w-full h-full object-cover" />
+                              ) : (
+                                <div className="col-span-2 w-full h-full bg-muted flex items-center justify-center">
+                                  <ImageIcon className="w-8 h-8 text-muted-foreground/30" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center justify-between px-3.5 py-2.5">
+                              <div>
+                                <p className="text-sm font-semibold text-foreground">{formatMonthLabel(m.yearMonth)}</p>
+                                <p className="text-xs text-muted-foreground">{m.count.toLocaleString()} {m.count === 1 ? "photo" : "photos"}</p>
+                              </div>
+                              {isLoading ? (
+                                <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                              ) : isLoaded ? (
+                                <span className="text-[11px] font-medium text-muted-foreground">Hide ↑</span>
+                              ) : (
+                                <span className="text-[11px] font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">Load</span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {/* Expanded photo grids for any clicked tile in this row */}
+                    {expandedInRow.map(m => (
+                      <div key={m.yearMonth} className="mb-6">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-baseline gap-2">
+                            <h2 className="text-base font-bold text-foreground">{formatMonthLabel(m.yearMonth)}</h2>
+                            <span className="text-xs text-muted-foreground">
+                              {photosByMonth[m.yearMonth].length.toLocaleString()} photos
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => collapseMonth(m.yearMonth)}
+                            className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
+                          >
+                            Show less
+                          </button>
                         </div>
-                      )}
-                    </div>
-                    <div className="flex items-center justify-between px-3.5 py-2.5">
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">{formatMonthLabel(m.yearMonth)}</p>
-                        <p className="text-xs text-muted-foreground">{m.count.toLocaleString()} {m.count === 1 ? "photo" : "photos"}</p>
+                        <PhotoGrid
+                          photos={photosByMonth[m.yearMonth]}
+                          dateField={sortOrder}
+                          onHide={handleHidePhoto}
+                          emptyMessage=""
+                        />
                       </div>
-                      {isLoading ? (
-                        <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <span className="text-[11px] font-medium text-primary opacity-0 group-hover:opacity-100 transition-opacity">Load</span>
-                      )}
-                    </div>
-                  </button>
-                </div>
-              );
-            })}
+                    ))}
+                  </React.Fragment>
+                );
+              });
+            })()}
 
             {/* Search results */}
             {debouncedSearch && (
