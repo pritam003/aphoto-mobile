@@ -28,7 +28,7 @@ export async function analyzePhoto(buffer: Buffer, mimeType: string): Promise<st
     const result = await client.path("/imageanalysis:analyze").post({
       body: buffer,
       queryParameters: {
-        features: ["Caption", "Tags", "Read"],
+        features: ["Tags", "Read"],
         language: "en",
         "api-version": "2024-02-01",
       } as Record<string, string | string[]>,
@@ -39,11 +39,6 @@ export async function analyzePhoto(buffer: Buffer, mimeType: string): Promise<st
     const body = result.body as Record<string, unknown>;
 
     const parts: string[] = [];
-
-    const captionResult = body.captionResult as { text?: string } | undefined;
-    if (captionResult?.text) {
-      parts.push(captionResult.text);
-    }
 
     const tagsResult = body.tagsResult as { values?: Array<{ name: string; confidence: number }> } | undefined;
     tagsResult?.values?.forEach((t) => {
