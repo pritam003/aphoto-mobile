@@ -51,7 +51,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /app/deploy ./
 
+# Entrypoint: runs index.mjs by default; set WORKER_MODE=true to run worker.mjs instead.
+# This avoids passing --enable-source-maps as a CLI arg to az containerapp create
+# (az CLI misinterprets any value starting with - as its own flag).
+COPY --chmod=755 <<'EOF' /app/docker-entrypoint.sh
+#!/bin/sh
+if [ "$WORKER_MODE" = "true" ]; then
+  exec node --enable-source-maps dist/worker.mjs
+else
+  exec node --enable-source-maps dist/index.mjs
+fi
+EOF
+
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["node", "--enable-source-maps", "dist/index.mjs"]
+CMD ["/app/docker-entrypoint.sh"]
