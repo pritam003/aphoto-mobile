@@ -31,13 +31,14 @@ RUN node artifacts/api-server/build.mjs
 # Use pnpm deploy to create a self-contained folder with all resolved node_modules
 RUN pnpm --filter @workspace/api-server deploy --prod --legacy /app/deploy
 
-# Rebuild canvas in the deploy layout so its native binding resolves against system cairo/pango.
-# @tensorflow/tfjs-node was already fully built by `pnpm rebuild` above (including the
-# libtensorflow download into deps/); pnpm deploy carries those artifacts over and they are
-# binary-compatible with node:22-slim, so no second rebuild is needed (and attempting one
-# fails with EEXIST because install.js tries to recreate the already-populated deps/ dir).
+# Rebuild native modules in the deploy layout.
+# canvas: needs to relink against system cairo/pango headers in this stage.
+# @tensorflow/tfjs-node: pnpm deploy copies deps/ from the builder stage; the install.js
+#   script fails with EEXIST if deps/ already exists, so we remove it first so it can
+#   re-download libtensorflow and recompile the binding for this exact node binary.
 WORKDIR /app/deploy
-RUN npm rebuild canvas 2>&1
+RUN find node_modules -path "*tfjs-node/deps" -maxdepth 6 -type d -exec rm -rf {} + 2>/dev/null || true
+RUN npm rebuild canvas @tensorflow/tfjs-node 2>&1
 WORKDIR /app
 
 # ---- runtime ----
