@@ -31,8 +31,14 @@ RUN node artifacts/api-server/build.mjs
 # Use pnpm deploy to create a self-contained folder with all resolved node_modules
 RUN pnpm --filter @workspace/api-server deploy --prod --legacy /app/deploy
 
-# Rebuild native modules inside the deploy directory (npm rebuild works without lockfile)
+# Rebuild native modules inside the deploy directory.
+# - canvas: must be rebuilt here because pnpm deploy reorganises node_modules paths.
+# - @tensorflow/tfjs-node: was already built by pnpm rebuild above and its deps/ directory
+#   (containing libtensorflow.so.2) is carried over by pnpm deploy. Running npm rebuild
+#   again fails with EEXIST because the install script tries to mkdir an existing deps/.
+#   We remove the stale deps/ first so the install script can recreate it cleanly.
 WORKDIR /app/deploy
+RUN find . -maxdepth 10 -path "*/tfjs-node/deps" -type d -exec rm -rf {} + 2>/dev/null || true
 RUN npm rebuild canvas @tensorflow/tfjs-node 2>&1
 WORKDIR /app
 
