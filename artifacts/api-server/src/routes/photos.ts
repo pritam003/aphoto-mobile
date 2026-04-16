@@ -3,7 +3,7 @@ import multer from "multer";
 import { randomUUID } from "crypto";
 import path from "path";
 import { db, photosTable, albumPhotosTable, albumsTable, shareLinksTable } from "@workspace/db";
-import { eq, and, desc, ilike, or, sql } from "drizzle-orm";
+import { eq, and, desc, ilike, or, sql, inArray } from "drizzle-orm";
 import { uploadBlob, deleteBlob, generateSasUrl, generateUploadSasUrl, downloadBlob } from "../lib/azure-storage.js";
 import { generateThumbnails } from "../lib/thumbnails.js";
 import { cacheGet, cacheSet, cacheDel, cacheDelPattern } from "../lib/cache.js";
@@ -246,6 +246,62 @@ router.get("/photos", async (req: any, res) => {
       .limit(parseInt(limit))
       .offset(parseInt(offset));
     photos = photos.filter((p: { id: string }) => photoIds.includes(p.id));
+  } else if (hidden === "true") {
+    // For archive view: include hidden photos owned by the user AND hidden guest-contributed
+    // photos that live in albums owned by the user (userId = "guest:{token}").
+    const orderExpr = orderBy === "uploaded"
+      ? desc(photosTable.uploadedAt)
+      : desc(sql`COALESCE(${photosTable.takenAt}, ${photosTable.uploadedAt})`);
+
+    // 1. Own hidden photos
+    const ownPhotos = await db
+      .select()
+      .from(photosTable)
+      .where(and(...conditions))
+      .orderBy(orderExpr);
+
+    // 2. Guest-contributed hidden photos in albums owned by this user
+    const userAlbums = await db
+      .select({ id: albumsTable.id })
+      .from(albumsTable)
+      .where(and(eq(albumsTable.userId, userId), eq(albumsTable.trashed, false)));
+
+    let guestPhotos: typeof ownPhotos = [];
+    if (userAlbums.length > 0) {
+      const albumIds = userAlbums.map((a: { id: string }) => a.id);
+      const links = await db
+        .select({ photoId: albumPhotosTable.photoId })
+        .from(albumPhotosTable)
+        .where(inArray(albumPhotosTable.albumId, albumIds));
+      const linkedIds = links.map((l: { photoId: string }) => l.photoId);
+      if (linkedIds.length > 0) {
+        guestPhotos = await db
+          .select()
+          .from(photosTable)
+          .where(and(
+            inArray(photosTable.id, linkedIds),
+            eq(photosTable.hidden, true),
+            eq(photosTable.trashed, false),
+            // Only guest-contributed: exclude photos already fetched above
+            sql`${photosTable.userId} LIKE 'guest:%'`,
+          ))
+          .orderBy(orderExpr);
+      }
+    }
+
+    // Merge, deduplicate, sort
+    const seen = new Set<string>();
+    const merged = [...ownPhotos, ...guestPhotos].filter(p => {
+      if (seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
+    merged.sort((a: any, b: any) => {
+      const da = new Date(a.takenAt ?? a.uploadedAt).getTime();
+      const db2 = new Date(b.takenAt ?? b.uploadedAt).getTime();
+      return db2 - da;
+    });
+    photos = merged.slice(parseInt(offset), parseInt(offset) + parseInt(limit));
   } else {
     const orderExpr = orderBy === "uploaded"
       ? desc(photosTable.uploadedAt)
