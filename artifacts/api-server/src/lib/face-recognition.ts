@@ -251,6 +251,13 @@ export async function processFacesForPhoto(
 // ── Background hourly job ─────────────────────────────────────────────────────
 
 let _jobRunning = false;
+let _jobTotal = 0;
+let _jobProcessed = 0;
+
+/** Returns the current face-scan job progress (in-process only). */
+export function getJobProgress(): { running: boolean; processed: number; total: number } {
+  return { running: _jobRunning, processed: _jobProcessed, total: _jobTotal };
+}
 
 /**
  * Scans all unprocessed images (no photo_faces entry) and runs face detection.
@@ -259,6 +266,8 @@ let _jobRunning = false;
 export async function runFaceRecognitionJob(): Promise<void> {
   if (_jobRunning) return;
   _jobRunning = true;
+  _jobProcessed = 0;
+  _jobTotal = 0;
   try {
     // Find image photos that have never been through face detection
     const rows = await db.execute(
@@ -275,6 +284,7 @@ export async function runFaceRecognitionJob(): Promise<void> {
     const photos = (rows as any).rows ?? [];
     if (photos.length === 0) return;
 
+    _jobTotal = photos.length;
     console.log(`[face-recognition] job: processing ${photos.length} unprocessed photo(s)`);
     await ensureModels();
 
@@ -285,6 +295,7 @@ export async function runFaceRecognitionJob(): Promise<void> {
       } catch (err) {
         console.error(`[face-recognition] job: error on ${photo.id}:`, err);
       }
+      _jobProcessed++;
     }
     console.log(`[face-recognition] job: done`);
   } catch (err) {

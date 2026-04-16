@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Users, RefreshCw } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "@/lib/api";
@@ -22,8 +22,30 @@ export default function PeoplePage() {
     queryKey: ["people"],
     queryFn: fetchPeople,
     staleTime: 2 * 60 * 1000,
-    refetchInterval: 60 * 60 * 1000, // re-fetch every hour to match server job cadence
+    refetchInterval: 60 * 60 * 1000,
   });
+
+  const [scanProgress, setScanProgress] = useState<{ running: boolean; processed: number; total: number } | null>(null);
+
+  // Poll scan-progress every 3s; stop when job finishes and refetch people
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/people/scan-progress`, { credentials: "include" });
+        if (!res.ok) return;
+        const data = await res.json();
+        setScanProgress(data);
+        if (!data.running && interval) {
+          clearInterval(interval);
+          refetch();
+        }
+      } catch {}
+    };
+    poll();
+    interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [refetch]);
 
   const people = data?.people ?? [];
 
@@ -49,6 +71,27 @@ export default function PeoplePage() {
           Refresh
         </button>
       </div>
+
+      {/* Face scan progress bar */}
+      {scanProgress && scanProgress.running && scanProgress.total > 0 && (
+        <div className="mb-6 p-4 rounded-xl border border-border bg-muted/40">
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="font-medium text-foreground">Scanning faces…</span>
+            <span className="text-muted-foreground">
+              {scanProgress.processed} / {scanProgress.total} photos
+            </span>
+          </div>
+          <div className="h-2 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary rounded-full transition-all duration-500"
+              style={{ width: `${Math.round((scanProgress.processed / scanProgress.total) * 100)}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground mt-1.5">
+            {Math.round((scanProgress.processed / scanProgress.total) * 100)}% complete · People will appear as photos are processed
+          </p>
+        </div>
+      )}
 
       {isLoading && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-6">

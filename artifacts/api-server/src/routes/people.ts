@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, peopleTable, photoFacesTable, photosTable } from "@workspace/db";
 import { eq, and, sql, isNotNull } from "drizzle-orm";
 import { generateSasUrl } from "../lib/azure-storage.js";
+import { getJobProgress } from "../lib/face-recognition.js";
 
 const router = Router();
 
@@ -41,6 +42,11 @@ router.get("/people", async (req: any, res) => {
   }));
 
   res.json({ people });
+});
+
+// ── GET /people/scan-progress ── face-scan job progress ──────────────────────
+router.get("/people/scan-progress", async (_req: any, res) => {
+  res.json(getJobProgress());
 });
 
 // ── GET /people/:id ── person detail with paginated photos ───────────────────
