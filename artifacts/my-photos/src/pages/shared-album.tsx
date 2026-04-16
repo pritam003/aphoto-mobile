@@ -516,7 +516,7 @@ export default function SharedAlbumPage() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border flex items-center gap-3 sticky top-0 bg-background/80 backdrop-blur z-10">
+      <div className="px-6 py-4 border-b border-border flex items-center gap-3 sticky top-0 bg-background z-10">
         <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center shrink-0">
           <Images className="w-4 h-4 text-primary" />
         </div>

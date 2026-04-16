@@ -47,7 +47,7 @@ export default function AlbumsPage() {
 
   return (
     <div className="flex-1 flex flex-col h-full">
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-background/80 backdrop-blur sticky top-0 z-10">
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-background sticky top-0 z-10">
         <h1 className="text-lg font-semibold text-foreground">Albums</h1>
         <div className="flex-1" />
         <button

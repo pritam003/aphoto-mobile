@@ -119,7 +119,7 @@ export default function PersonDetailPage() {
   return (
     <div className="flex-1 overflow-y-auto">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-background/80 backdrop-blur border-b border-border px-6 py-4">
+      <div className="sticky top-0 z-10 bg-background border-b border-border px-6 py-4">
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate("/people")}

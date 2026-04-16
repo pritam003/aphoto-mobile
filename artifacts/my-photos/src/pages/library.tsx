@@ -261,7 +261,7 @@ export default function LibraryPage() {
         </div>
       )}
 
-      <div className="flex items-center gap-3 px-6 py-3.5 border-b border-border bg-background/90 backdrop-blur sticky top-0 z-10 shadow-sm">
+      <div className="flex items-center gap-3 px-6 py-3.5 border-b border-border bg-background sticky top-0 z-10 shadow-sm">
         <h1 className="text-lg font-bold text-foreground tracking-tight">Photos</h1>
         <div className="flex-1" />
         <button
@@ -304,7 +304,7 @@ export default function LibraryPage() {
 
       {showGoogleImport && <GoogleImportModal onClose={() => setShowGoogleImport(false)} />}
 
-      <div className="flex-1 overflow-y-auto px-6 py-5 relative">
+      <div className="flex-1 overflow-y-auto main-scroll px-6 py-5 relative">
         {/* Year scrubber — full-height track on right edge, like Google Photos */}
         {!debouncedSearch && yearsList.length > 1 && (
           <div className="fixed right-3 top-14 bottom-0 z-20 flex flex-col items-center justify-between py-6 select-none w-10">

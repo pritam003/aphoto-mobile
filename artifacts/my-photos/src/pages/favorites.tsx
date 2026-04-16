@@ -11,7 +11,7 @@ export default function FavoritesPage() {
 
   return (
     <div className="flex-1 flex flex-col h-full">
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-background/80 backdrop-blur sticky top-0 z-10">
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-background sticky top-0 z-10">
         <h1 className="text-lg font-semibold text-foreground">Favorites</h1>
         <span className="text-sm text-muted-foreground">{photos.length} photo{photos.length !== 1 ? "s" : ""}</span>
       </div>

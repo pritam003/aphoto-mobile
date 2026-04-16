@@ -152,3 +152,34 @@
   * { @apply border-border; }
   body { @apply font-sans antialiased bg-background text-foreground; }
 }
+
+/* ── Performance: GPU-promote primary scroll container & images ── */
+@layer utilities {
+  /* Force GPU compositing on the main page scroll area to prevent
+     scroll jank on Windows where the compositor runs off the main thread */
+  .main-scroll {
+    will-change: scroll-position;
+    transform: translateZ(0);
+  }
+
+  /* Promote thumbnails to their own layer only while hovered, not eagerly
+     (eagerly promoting 200+ cells wastes VRAM on low-end Windows GPUs) */
+  .photo-thumb:hover {
+    will-change: transform;
+  }
+
+  /* Images: use GPU-decoded bitmaps to avoid blocking during scroll */
+  img {
+    content-visibility: auto;
+  }
+}
+
+/* ── Respect prefers-reduced-motion for users on older Windows hardware ── */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

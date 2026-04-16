@@ -38,6 +38,7 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
   const dragOrigin = useRef<{ x: number; y: number } | null>(null);
   const [dragRect, setDragRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const hasDragged = useRef(false);
+  const dragRafRef = useRef<number | null>(null);
 
   const getDragRect = (ox: number, oy: number, cx: number, cy: number) => ({
     x: Math.min(ox, cx), y: Math.min(oy, cy),
@@ -59,35 +60,44 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!dragOrigin.current || !gridRef.current) return;
-      const grid = gridRef.current;
-      const gr = grid.getBoundingClientRect();
-      const cx = e.clientX - gr.left + grid.scrollLeft;
-      const cy = e.clientY - gr.top + grid.scrollTop;
-      const rect = getDragRect(dragOrigin.current.x, dragOrigin.current.y, cx, cy);
-      if (rect.w > 6 || rect.h > 6) {
-        hasDragged.current = true;
-        setDragRect(rect);
-        // Hit-test all photo elements
-        const photoEls = grid.querySelectorAll<HTMLElement>("[data-photo-id]");
-        const newSelected = new Set<string>();
-        photoEls.forEach(el => {
-          const er = el.getBoundingClientRect();
-          const elLeft = er.left - gr.left + grid.scrollLeft;
-          const elTop = er.top - gr.top + grid.scrollTop;
-          const elRight = elLeft + er.width;
-          const elBottom = elTop + er.height;
-          const rRight = rect.x + rect.w;
-          const rBottom = rect.y + rect.h;
-          if (elLeft < rRight && elRight > rect.x && elTop < rBottom && elBottom > rect.y) {
-            newSelected.add(el.dataset.photoId!);
-          }
-        });
-        if (newSelected.size > 0) setSelectedIds(newSelected);
-      }
+      // Throttle to one RAF per frame — avoids layout thrashing on Windows
+      if (dragRafRef.current !== null) return;
+      const clientX = e.clientX;
+      const clientY = e.clientY;
+      dragRafRef.current = requestAnimationFrame(() => {
+        dragRafRef.current = null;
+        if (!dragOrigin.current || !gridRef.current) return;
+        const grid = gridRef.current;
+        const gr = grid.getBoundingClientRect();
+        const cx = clientX - gr.left + grid.scrollLeft;
+        const cy = clientY - gr.top + grid.scrollTop;
+        const rect = getDragRect(dragOrigin.current.x, dragOrigin.current.y, cx, cy);
+        if (rect.w > 6 || rect.h > 6) {
+          hasDragged.current = true;
+          setDragRect(rect);
+          // Hit-test all photo elements
+          const photoEls = grid.querySelectorAll<HTMLElement>("[data-photo-id]");
+          const newSelected = new Set<string>();
+          photoEls.forEach(el => {
+            const er = el.getBoundingClientRect();
+            const elLeft = er.left - gr.left + grid.scrollLeft;
+            const elTop = er.top - gr.top + grid.scrollTop;
+            const elRight = elLeft + er.width;
+            const elBottom = elTop + er.height;
+            const rRight = rect.x + rect.w;
+            const rBottom = rect.y + rect.h;
+            if (elLeft < rRight && elRight > rect.x && elTop < rBottom && elBottom > rect.y) {
+              newSelected.add(el.dataset.photoId!);
+            }
+          });
+          if (newSelected.size > 0) setSelectedIds(newSelected);
+        }
+      });
     };
     const onMouseUp = () => {
       dragOrigin.current = null;
       setDragRect(null);
+      if (dragRafRef.current !== null) { cancelAnimationFrame(dragRafRef.current); dragRafRef.current = null; }
     };
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
@@ -363,7 +373,7 @@ function StackCell({ hiddenCount, previews, onExpand }: { hiddenCount: number; p
   return (
     <button
       onClick={onExpand}
-      className="relative aspect-square overflow-hidden rounded-lg focus:outline-none focus:ring-2 focus:ring-primary transition-all duration-200 hover:scale-[1.03] hover:shadow-lg hover:z-10"
+      className="relative aspect-square overflow-hidden rounded-lg focus:outline-none focus:ring-2 focus:ring-primary transition-[transform,box-shadow] duration-200 hover:scale-[1.03] hover:shadow-lg hover:z-10"
       title={`Show ${hiddenCount} more photos`}
     >
       {/* Stacked card layers behind (bottom to top) */}
@@ -597,7 +607,7 @@ const PhotoThumbnail = memo(function PhotoThumbnail({ photo, globalIndex, onOpen
       onClick={() => selecting ? onToggleSelect(photo.id) : onOpenLightbox(globalIndex)}
       data-testid={`photo-${photo.id}`}
       data-photo-id={photo.id}
-      className="relative aspect-square bg-muted overflow-hidden rounded-lg group focus:outline-none focus:ring-2 focus:ring-primary transition-all duration-200 hover:scale-[1.03] hover:shadow-lg hover:z-10"
+      className="photo-thumb relative aspect-square bg-muted overflow-hidden rounded-lg group focus:outline-none focus:ring-2 focus:ring-primary transition-[transform,box-shadow] duration-200 hover:scale-[1.03] hover:shadow-lg hover:z-10"
       style={{ contain: "layout style paint" }}
       onMouseEnter={() => isVideo && setVideoHovered(true)}
       onMouseLeave={() => isVideo && setVideoHovered(false)}
