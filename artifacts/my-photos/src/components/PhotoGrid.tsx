@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 import { Heart, FolderPlus, Check, FolderMinus, Trash2, Download, X, EyeOff, Eye } from "lucide-react";
 import { groupPhotosByDate } from "@/lib/api";
 import Lightbox from "./Lightbox";
-import { useListAlbums, useAddPhotoToAlbum, useTrashPhoto, getListAlbumsQueryKey, getListAlbumPhotosQueryKey, getListPhotosQueryKey, getGetPhotoStatsQueryKey } from "@workspace/api-client-react";
+import { useListAlbums, useAddPhotoToAlbum, useCreateAlbum, useTrashPhoto, getListAlbumsQueryKey, getListAlbumPhotosQueryKey, getListPhotosQueryKey, getGetPhotoStatsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { API_BASE } from "@/lib/api";
 
@@ -23,9 +23,13 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBulkAlbumPicker, setShowBulkAlbumPicker] = useState(false);
   const [bulkAlbumAdded, setBulkAlbumAdded] = useState<string | null>(null);
+  const [showNewAlbumInput, setShowNewAlbumInput] = useState(false);
+  const [newAlbumName, setNewAlbumName] = useState("");
+  const [creatingAlbum, setCreatingAlbum] = useState(false);
   const queryClient = useQueryClient();
   const trashPhoto = useTrashPhoto();
   const addPhotoToAlbum = useAddPhotoToAlbum();
+  const createAlbum = useCreateAlbum();
   const { data: albumList } = useListAlbums({ query: { queryKey: getListAlbumsQueryKey(), enabled: showBulkAlbumPicker } });
   const selecting = selectedIds.size > 0;
 
@@ -190,6 +194,22 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIds]);
 
+  const handleCreateAndAddToAlbum = useCallback(async () => {
+    const trimmed = newAlbumName.trim();
+    if (!trimmed) return;
+    setCreatingAlbum(true);
+    try {
+      const album = await createAlbum.mutateAsync({ data: { name: trimmed } });
+      await handleBulkAddToAlbum(album.id);
+      queryClient.invalidateQueries({ queryKey: getListAlbumsQueryKey() });
+      setNewAlbumName("");
+      setShowNewAlbumInput(false);
+    } finally {
+      setCreatingAlbum(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newAlbumName, handleBulkAddToAlbum]);
+
   if (photos.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
@@ -266,22 +286,47 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
               Add to album
             </button>
             {showBulkAlbumPicker && (
-              <div className="absolute bottom-full mb-2 left-0 z-20 bg-card border border-border rounded-xl shadow-2xl min-w-44 max-h-56 overflow-y-auto">
+              <div className="absolute bottom-full mb-2 left-0 z-20 bg-card border border-border rounded-xl shadow-2xl min-w-52 max-h-72 overflow-y-auto">
                 <p className="text-xs text-muted-foreground px-3 py-2 border-b border-border">Add {selectedIds.size} photo{selectedIds.size !== 1 ? "s" : ""} to…</p>
-                {!albumList || albumList.length === 0 ? (
-                  <p className="text-xs text-muted-foreground px-3 py-2">No albums yet</p>
-                ) : (
-                  albumList.map((album: any) => (
+                {albumList && albumList.map((album: any) => (
+                  <button
+                    key={album.id}
+                    onClick={() => handleBulkAddToAlbum(album.id)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center justify-between gap-2 transition-colors"
+                  >
+                    <span className="truncate">{album.name}</span>
+                    {bulkAlbumAdded === album.id && <Check className="w-3.5 h-3.5 text-green-500 shrink-0" />}
+                  </button>
+                ))}
+                <div className="border-t border-border">
+                  {showNewAlbumInput ? (
+                    <div className="flex items-center gap-1.5 px-2 py-2">
+                      <input
+                        autoFocus
+                        value={newAlbumName}
+                        onChange={e => setNewAlbumName(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") handleCreateAndAddToAlbum(); if (e.key === "Escape") { setShowNewAlbumInput(false); setNewAlbumName(""); } }}
+                        placeholder="Album name…"
+                        className="flex-1 min-w-0 text-sm px-2 py-1 bg-muted rounded border border-border focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-muted-foreground"
+                      />
+                      <button
+                        onClick={handleCreateAndAddToAlbum}
+                        disabled={!newAlbumName.trim() || creatingAlbum}
+                        className="shrink-0 px-2 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                      >
+                        {creatingAlbum ? "…" : "Create"}
+                      </button>
+                    </div>
+                  ) : (
                     <button
-                      key={album.id}
-                      onClick={() => handleBulkAddToAlbum(album.id)}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center justify-between gap-2 transition-colors"
+                      onClick={() => setShowNewAlbumInput(true)}
+                      className="w-full text-left px-3 py-2 text-sm text-primary hover:bg-muted flex items-center gap-2 transition-colors"
                     >
-                      <span className="truncate">{album.name}</span>
-                      {bulkAlbumAdded === album.id && <Check className="w-3.5 h-3.5 text-green-500 shrink-0" />}
+                      <FolderPlus className="w-3.5 h-3.5" />
+                      New album
                     </button>
-                  ))
-                )}
+                  )}
+                </div>
               </div>
             )}
           </div>

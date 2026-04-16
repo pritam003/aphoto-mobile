@@ -1,5 +1,5 @@
 import { useRoute, useLocation } from "wouter";
-import { ArrowLeft, Pencil, Check, Upload, Plus, X, Share2 } from "lucide-react";
+import { ArrowLeft, Pencil, Check, Upload, Plus, X, Share2, Archive } from "lucide-react";
 import GoogleImportModal from "@/components/GoogleImportModal";
 import ShareAlbumModal from "@/components/ShareAlbumModal";
 import { useState } from "react";
@@ -8,6 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import PhotoGrid from "@/components/PhotoGrid";
 import UploadModal from "@/components/UploadModal";
 import { useImport } from "@/lib/importContext";
+import { API_BASE } from "@/lib/api";
 
 export default function AlbumDetailPage() {
   const [, params] = useRoute("/albums/:id");
@@ -20,6 +21,7 @@ export default function AlbumDetailPage() {
   const [pickerLimit, setPickerLimit] = useState(50);
   const [showGoogleImport, setShowGoogleImport] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const [sortOrder, setSortOrder] = useState<"taken" | "uploaded">("taken");
   const [displayLimit, setDisplayLimit] = useState(50);
   const queryClient = useQueryClient();
@@ -109,6 +111,27 @@ export default function AlbumDetailPage() {
     queryClient.invalidateQueries({ queryKey: getListAlbumPhotosQueryKey(id) });
   };
 
+  const handleArchiveAlbum = async () => {
+    if (!photos.length) return;
+    if (!confirm(`Archive all ${photos.length} photos in "${album?.name}"? They will be moved to your Archive and hidden from the main library.`)) return;
+    setArchiving(true);
+    try {
+      await Promise.all(photos.map(p =>
+        fetch(`${API_BASE}/photos/${p.id}/hide`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ hidden: true }),
+        })
+      ));
+      queryClient.invalidateQueries({ queryKey: getListPhotosQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
+      queryClient.invalidateQueries({ queryKey: getListAlbumPhotosQueryKey(id) });
+    } finally {
+      setArchiving(false);
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full">
       <div className="flex items-center gap-3 px-6 py-4 border-b border-border bg-background/80 backdrop-blur sticky top-0 z-10">
@@ -160,6 +183,15 @@ export default function AlbumDetailPage() {
             <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
           </svg>
           Import from Google
+        </button>
+        <button
+          onClick={handleArchiveAlbum}
+          disabled={archiving || !photos.length}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+          title="Move all photos in this album to Archive"
+        >
+          <Archive className="w-4 h-4" />
+          {archiving ? "Archiving…" : "Archive album"}
         </button>
         <button
           onClick={() => setShowShare(true)}
