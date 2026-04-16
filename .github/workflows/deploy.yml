@@ -116,8 +116,8 @@ jobs:
               --image "$IMAGE" \
               --cpu 2 --memory 4Gi \
               --min-replicas 1 --max-replicas 1 \
-              --command "node" \
-              --args "--enable-source-maps" "dist/worker.mjs" \
+              --command "sh" \
+              --args "-c" "node --enable-source-maps dist/worker.mjs" \
               --registry-server ${{ env.REGISTRY }} \
               --env-vars \
                 "NODE_ENV=production" \
