@@ -14,6 +14,7 @@ interface DayGroup {
   dow: number;
   dayName: string;
   photos: ReelPhoto[];
+  isToday?: boolean;
 }
 
 interface WeeklyMemoriesProps {
@@ -31,7 +32,7 @@ function getYear(photo: ReelPhoto) {
 const SLIDE_MS = 3500;
 
 function ReelOverlay({ day, onClose }: { day: DayGroup; onClose: () => void }) {
-  const { photos, dayName } = day;
+  const { photos, dayName, isToday } = day;
   const [current, setCurrent] = useState(0);
   const [paused, setPaused] = useState(false);
   const [dir, setDir] = useState<"next" | "prev">("next");
@@ -99,7 +100,7 @@ function ReelOverlay({ day, onClose }: { day: DayGroup; onClose: () => void }) {
           {/* Header */}
           <div className="flex items-center gap-3 mb-6 text-white">
             <div className="text-center">
-              <h2 className="text-xl font-bold">{dayName} memories</h2>
+              <h2 className="text-xl font-bold">{isToday ? "On This Day" : `${dayName} memories`}</h2>
               <p className="text-sm text-white/60">{photos.length} {photos.length === 1 ? "memory" : "memories"} · Over the years</p>
             </div>
           </div>
@@ -419,11 +420,11 @@ export default function OnThisDayReel({ days, todayDow }: WeeklyMemoriesProps) {
             className="flex gap-3 overflow-x-auto"
             style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
           >
-            {days.map(day => (
+            {days.map((day, i) => (
               <DayTile
-                key={day.dow}
+                key={`${day.dow}-${i}`}
                 day={day}
-                isToday={day.dow === todayDow}
+                isToday={!!(day.isToday) || day.dow === todayDow}
                 onClick={() => setOpenDay(day)}
               />
             ))}

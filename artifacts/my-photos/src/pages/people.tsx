@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Users } from "lucide-react";
+import { Users, RefreshCw } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { API_BASE } from "@/lib/api";
 import PersonCard from "@/components/PersonCard";
@@ -18,10 +18,11 @@ async function fetchPeople(): Promise<{ people: Person[] }> {
 }
 
 export default function PeoplePage() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ["people"],
     queryFn: fetchPeople,
     staleTime: 2 * 60 * 1000,
+    refetchInterval: 60 * 60 * 1000, // re-fetch every hour to match server job cadence
   });
 
   const people = data?.people ?? [];
@@ -37,6 +38,16 @@ export default function PeoplePage() {
             {people.length} {people.length === 1 ? "person" : "people"}
           </span>
         )}
+        <div className="flex-1" />
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-muted transition-colors disabled:opacity-50"
+          title="Refresh people"
+        >
+          <RefreshCw className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
       </div>
 
       {isLoading && (

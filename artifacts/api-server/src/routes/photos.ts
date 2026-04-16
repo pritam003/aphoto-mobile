@@ -57,7 +57,40 @@ router.get("/photos/on-this-day", async (req: any, res) => {
   const now = new Date();
   const thisYear = now.getFullYear();
   const todayDow = now.getDay(); // 0=Sun … 6=Sat
+  const todayMonth = now.getMonth() + 1; // 1-based
+  const todayDay = now.getDate();
   try {
+    // ── "On This Day" photos: same month+day in any previous year ────────────
+    const todayRows = await db.execute(
+      sql`SELECT *, EXTRACT(DOW FROM COALESCE(taken_at, uploaded_at))::int AS dow
+          FROM photos
+          WHERE user_id = ${userId}
+            AND trashed = false
+            AND hidden = false
+            AND content_type NOT LIKE 'video/%'
+            AND EXTRACT(YEAR  FROM COALESCE(taken_at, uploaded_at)) < ${thisYear}
+            AND EXTRACT(MONTH FROM COALESCE(taken_at, uploaded_at)) = ${todayMonth}
+            AND EXTRACT(DAY   FROM COALESCE(taken_at, uploaded_at)) = ${todayDay}
+          ORDER BY COALESCE(taken_at, uploaded_at) DESC
+          LIMIT 20`,
+    );
+    const todayPhotos: any[] = [];
+    for (const photo of (todayRows as any).rows ?? []) {
+      if (todayPhotos.length >= 10) break;
+      const url = generateSasUrl(photo.blob_name);
+      todayPhotos.push({
+        id: photo.id,
+        filename: photo.filename,
+        contentType: photo.content_type,
+        size: photo.size,
+        url,
+        thumbnailUrl: url,
+        favorite: photo.favorite,
+        uploadedAt: photo.uploaded_at,
+        takenAt: photo.taken_at,
+      });
+    }
+
     // Fetch up to 20 photos per day-of-week for all 7 days in one query
     const rows = await db.execute(
       sql`SELECT *, EXTRACT(DOW FROM COALESCE(taken_at, uploaded_at))::int AS dow
@@ -90,11 +123,17 @@ router.get("/photos/on-this-day", async (req: any, res) => {
       }
     }
     // Return days that have photos, today first then the rest in order
-    const days: { dow: number; dayName: string; photos: any[] }[] = [];
+    const days: { dow: number; dayName: string; photos: any[]; isToday?: boolean }[] = [];
     const DOW_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+    // Prepend "On This Day" (same month+day across past years) if photos exist
+    if (todayPhotos.length > 0) {
+      days.push({ dow: todayDow, dayName: DOW_NAMES[todayDow], photos: todayPhotos, isToday: true });
+    }
     // Build ordered list: todayDow first, then the other 6 days in circular order
     const order = Array.from({ length: 7 }, (_, i) => (todayDow + i) % 7);
     for (const d of order) {
+      // Skip today's DOW if we already added it as the "On This Day" tile
+      if (d === todayDow && todayPhotos.length > 0) continue;
       if (byDow[d] && byDow[d].length > 0) {
         days.push({ dow: d, dayName: DOW_NAMES[d], photos: byDow[d] });
       }
