@@ -1,9 +1,13 @@
-FROM node:22-alpine AS builder
+# Use Debian-based image so TensorFlow's glibc-linked native binaries work at runtime.
+# Alpine (musl libc) is incompatible with pre-built @tensorflow/tfjs-node binaries.
+FROM node:22 AS builder
 WORKDIR /app
 
 # Build tools for native modules (canvas: cairo/pango; tfjs-node: python/make/g++)
-RUN apk add --no-cache python3 make g++ \
-    cairo-dev pango-dev giflib-dev librsvg-dev pixman-dev
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ \
+    libcairo2-dev libpango1.0-dev libgif-dev librsvg2-dev libpixman-1-dev \
+  && rm -rf /var/lib/apt/lists/*
 
 # Copy workspace manifests
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
@@ -16,7 +20,6 @@ COPY lib/api-client-react/package.json ./lib/api-client-react/
 RUN corepack enable && pnpm install --frozen-lockfile
 
 # Build native modules in the workspace so they are available in /app/node_modules.
-# sharp uses the prebuilt @img/sharp-linuxmusl-x64 binary from the lockfile.
 RUN pnpm rebuild canvas @tensorflow/tfjs-node
 
 COPY artifacts/api-server ./artifacts/api-server
@@ -26,22 +29,21 @@ COPY lib ./lib
 RUN node artifacts/api-server/build.mjs
 
 # Use pnpm deploy to create a self-contained folder with all resolved node_modules
-# (includes .pnpm store so symlinks resolve correctly)
 RUN pnpm --filter @workspace/api-server deploy --prod --legacy /app/deploy
 
-# pnpm deploy reinstalls packages and may skip lifecycle scripts for native modules.
-# Rebuild canvas and tfjs-node inside the deploy directory using build tools already present.
+# Rebuild native modules inside the deploy directory (npm rebuild works without lockfile)
 WORKDIR /app/deploy
-# pnpm rebuild can silently fail in the deploy dir (no lockfile); npm rebuild is more reliable here.
-RUN npm rebuild canvas @tensorflow/tfjs-node 2>&1 || true
+RUN npm rebuild canvas @tensorflow/tfjs-node 2>&1
 WORKDIR /app
 
 # ---- runtime ----
-FROM node:22-alpine
+FROM node:22-slim
 WORKDIR /app
 
 # Runtime shared libraries required by canvas, tfjs-node, and sharp
-RUN apk add --no-cache cairo pango giflib librsvg pixman vips
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcairo2 libpango-1.0-0 libgif7 librsvg2-2 libpixman-1-0 libvips \
+  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/deploy ./
 
