@@ -81,16 +81,33 @@ jobs:
           IMAGE="${{ env.REGISTRY }}/${{ env.API_IMAGE }}:${{ needs.build-api.outputs.image_tag }}"
           RG="${{ env.RESOURCE_GROUP }}"
           WORKER="${{ env.WORKER_APP_NAME }}"
+          API="${{ env.CONTAINER_APP_NAME }}"
 
           # Check if the worker app already exists
           EXISTS=$(az containerapp show --name "$WORKER" --resource-group "$RG" --query "name" -o tsv 2>/dev/null || echo "")
 
           if [ -z "$EXISTS" ]; then
-            # First deploy — copy environment from the API app and create the worker
+            # First deploy — create the worker app in the same environment as the API
             ENVIRONMENT=$(az containerapp show \
-              --name ${{ env.CONTAINER_APP_NAME }} \
+              --name "$API" \
               --resource-group "$RG" \
               --query "properties.environmentId" -o tsv)
+
+            # Read plain env vars from the API app
+            STORAGE_ACCOUNT=$(az containerapp show --name "$API" --resource-group "$RG" \
+              --query "properties.template.containers[0].env[?name=='AZURE_STORAGE_ACCOUNT_NAME'].value | [0]" -o tsv)
+            STORAGE_CONTAINER=$(az containerapp show --name "$API" --resource-group "$RG" \
+              --query "properties.template.containers[0].env[?name=='AZURE_STORAGE_CONTAINER_NAME'].value | [0]" -o tsv)
+            FACE_ENDPOINT=$(az containerapp show --name "$API" --resource-group "$RG" \
+              --query "properties.template.containers[0].env[?name=='AZURE_FACE_ENDPOINT'].value | [0]" -o tsv)
+            FACE_THRESHOLD=$(az containerapp show --name "$API" --resource-group "$RG" \
+              --query "properties.template.containers[0].env[?name=='FACE_SIMILARITY_THRESHOLD'].value | [0]" -o tsv)
+
+            # Read secret values to re-register in the new worker app
+            DB_URL_VAL=$(az containerapp secret show --name "$API" --resource-group "$RG" --secret-name db-url --query value -o tsv)
+            SESSION_VAL=$(az containerapp secret show --name "$API" --resource-group "$RG" --secret-name session-secret --query value -o tsv)
+            VISION_EP_VAL=$(az containerapp secret show --name "$API" --resource-group "$RG" --secret-name vision-endpoint --query value -o tsv 2>/dev/null || echo "")
+            VISION_KEY_VAL=$(az containerapp secret show --name "$API" --resource-group "$RG" --secret-name vision-key --query value -o tsv 2>/dev/null || echo "")
 
             az containerapp create \
               --name "$WORKER" \
@@ -99,27 +116,24 @@ jobs:
               --image "$IMAGE" \
               --cpu 2 --memory 4Gi \
               --min-replicas 1 --max-replicas 1 \
-              --command "node" "--enable-source-maps" "dist/worker.mjs" \
+              --command "node" \
+              --args "--enable-source-maps" "dist/worker.mjs" \
               --registry-server ${{ env.REGISTRY }} \
               --env-vars \
-                "PORT=3001" \
                 "NODE_ENV=production" \
                 "DATABASE_URL=secretref:db-url" \
                 "SESSION_SECRET=secretref:session-secret" \
-                "AZURE_STORAGE_ACCOUNT_NAME=secretref:storage-account-name" \
-                "AZURE_STORAGE_CONTAINER_NAME=secretref:storage-container-name" \
+                "AZURE_STORAGE_ACCOUNT_NAME=${STORAGE_ACCOUNT}" \
+                "AZURE_STORAGE_CONTAINER_NAME=${STORAGE_CONTAINER}" \
                 "AZURE_VISION_ENDPOINT=secretref:vision-endpoint" \
                 "AZURE_VISION_KEY=secretref:vision-key" \
-                "AZURE_CLIENT_ID=secretref:azure-client-id" \
-                "FACE_SIMILARITY_THRESHOLD=0.5" \
+                "AZURE_FACE_ENDPOINT=${FACE_ENDPOINT}" \
+                "FACE_SIMILARITY_THRESHOLD=${FACE_THRESHOLD:-0.5}" \
               --secrets \
-                "db-url=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name db-url --query value -o tsv)" \
-                "session-secret=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name session-secret --query value -o tsv)" \
-                "storage-account-name=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name storage-account-name --query value -o tsv)" \
-                "storage-container-name=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name storage-container-name --query value -o tsv)" \
-                "vision-endpoint=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name vision-endpoint --query value -o tsv 2>/dev/null || echo '')" \
-                "vision-key=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name vision-key --query value -o tsv 2>/dev/null || echo '')" \
-                "azure-client-id=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name azure-client-id --query value -o tsv 2>/dev/null || echo '')"
+                "db-url=${DB_URL_VAL}" \
+                "session-secret=${SESSION_VAL}" \
+                "vision-endpoint=${VISION_EP_VAL}" \
+                "vision-key=${VISION_KEY_VAL}"
           else
             # Subsequent deploys — just update the image
             az containerapp update \
