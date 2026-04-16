@@ -117,6 +117,8 @@ jobs:
               --cpu 2 --memory 4Gi \
               --min-replicas 1 --max-replicas 1 \
               --registry-server ${{ env.REGISTRY }} \
+              --registry-identity system \
+              --system-assigned \
               --env-vars \
                 "NODE_ENV=production" \
                 "WORKER_MODE=true" \
@@ -133,6 +135,15 @@ jobs:
                 "session-secret=${SESSION_VAL}" \
                 "vision-endpoint=${VISION_EP_VAL}" \
                 "vision-key=${VISION_KEY_VAL}"
+
+            # Grant the worker's system-assigned identity AcrPull on the ACR
+            WORKER_PRINCIPAL=$(az containerapp show --name "$WORKER" --resource-group "$RG" \
+              --query "identity.principalId" -o tsv)
+            ACR_ID=$(az acr show --name ${{ secrets.ACR_NAME }} --resource-group "$RG" --query id -o tsv)
+            az role assignment create \
+              --assignee "$WORKER_PRINCIPAL" \
+              --role AcrPull \
+              --scope "$ACR_ID" 2>/dev/null || true
           else
             # Subsequent deploys — just update the image
             az containerapp update \
