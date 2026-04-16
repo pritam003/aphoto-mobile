@@ -14,8 +14,7 @@ async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
 
-  await esbuild({
-    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
+  const sharedConfig = {
     platform: "node",
     bundle: true,
     format: "esm",
@@ -118,7 +117,13 @@ globalThis.__filename = __bannerUrl.fileURLToPath(import.meta.url);
 globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
-  });
+  };
+
+  // Build API server and worker in parallel
+  await Promise.all([
+    esbuild({ ...sharedConfig, entryPoints: [path.resolve(artifactDir, "src/index.ts")] }),
+    esbuild({ ...sharedConfig, entryPoints: [path.resolve(artifactDir, "src/worker.ts")] }),
+  ]);
 }
 
 buildAll().catch((err) => {

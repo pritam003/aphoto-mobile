@@ -8,6 +8,7 @@ env:
   REGISTRY: ${{ secrets.REGISTRY_LOGIN_SERVER }}   # e.g. myphotosacr.azurecr.io
   API_IMAGE: my-photos-api
   CONTAINER_APP_NAME: my-photos-api-in
+  WORKER_APP_NAME: my-photos-worker-in
   RESOURCE_GROUP: my-photos-rg
   STATIC_WEB_APP_NAME: my-photos-frontend
 
@@ -58,12 +59,74 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Deploy to Container Apps
+      - name: Deploy API to Container Apps
         run: |
           az containerapp update \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --image ${{ env.REGISTRY }}/${{ env.API_IMAGE }}:${{ needs.build-api.outputs.image_tag }}
+
+  # ── Deploy Worker to Container Apps ─────────────────────────────────────────
+  deploy-worker:
+    needs: build-api
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create or update worker Container App
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ env.API_IMAGE }}:${{ needs.build-api.outputs.image_tag }}"
+          RG="${{ env.RESOURCE_GROUP }}"
+          WORKER="${{ env.WORKER_APP_NAME }}"
+
+          # Check if the worker app already exists
+          EXISTS=$(az containerapp show --name "$WORKER" --resource-group "$RG" --query "name" -o tsv 2>/dev/null || echo "")
+
+          if [ -z "$EXISTS" ]; then
+            # First deploy — copy environment from the API app and create the worker
+            ENVIRONMENT=$(az containerapp show \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group "$RG" \
+              --query "properties.environmentId" -o tsv)
+
+            az containerapp create \
+              --name "$WORKER" \
+              --resource-group "$RG" \
+              --environment "$ENVIRONMENT" \
+              --image "$IMAGE" \
+              --cpu 2 --memory 4Gi \
+              --min-replicas 1 --max-replicas 1 \
+              --command "node" "--enable-source-maps" "dist/worker.mjs" \
+              --registry-server ${{ env.REGISTRY }} \
+              --env-vars \
+                "PORT=3001" \
+                "NODE_ENV=production" \
+                "DATABASE_URL=secretref:db-url" \
+                "SESSION_SECRET=secretref:session-secret" \
+                "AZURE_STORAGE_ACCOUNT_NAME=secretref:storage-account-name" \
+                "AZURE_STORAGE_CONTAINER_NAME=secretref:storage-container-name" \
+                "AZURE_VISION_ENDPOINT=secretref:vision-endpoint" \
+                "AZURE_VISION_KEY=secretref:vision-key" \
+                "AZURE_CLIENT_ID=secretref:azure-client-id" \
+                "FACE_SIMILARITY_THRESHOLD=0.5" \
+              --secrets \
+                "db-url=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name db-url --query value -o tsv)" \
+                "session-secret=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name session-secret --query value -o tsv)" \
+                "storage-account-name=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name storage-account-name --query value -o tsv)" \
+                "storage-container-name=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name storage-container-name --query value -o tsv)" \
+                "vision-endpoint=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name vision-endpoint --query value -o tsv 2>/dev/null || echo '')" \
+                "vision-key=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name vision-key --query value -o tsv 2>/dev/null || echo '')" \
+                "azure-client-id=$(az containerapp secret show --name ${{ env.CONTAINER_APP_NAME }} --resource-group "$RG" --secret-name azure-client-id --query value -o tsv 2>/dev/null || echo '')"
+          else
+            # Subsequent deploys — just update the image
+            az containerapp update \
+              --name "$WORKER" \
+              --resource-group "$RG" \
+              --image "$IMAGE"
+          fi
 
   # ── Build & deploy frontend to Static Web Apps ───────────────────────────────
   deploy-frontend:

@@ -3,7 +3,6 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { runFaceRecognitionJob } from "./lib/face-recognition.js";
 
 const rawPort = process.env["PORT"];
 
@@ -47,11 +46,4 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
-
-  // Run face recognition job 30s after startup, then every hour
-  const FACE_JOB_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-  setTimeout(() => {
-    runFaceRecognitionJob().catch(() => {});
-    setInterval(() => runFaceRecognitionJob().catch(() => {}), FACE_JOB_INTERVAL_MS);
-  }, 30_000);
 });
