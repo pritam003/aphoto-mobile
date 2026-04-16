@@ -15,8 +15,7 @@ COPY lib/api-client-react/package.json ./lib/api-client-react/
 
 RUN corepack enable && pnpm install --frozen-lockfile
 
-# Build native modules BEFORE deploy so built .node files are copied over.
-# pnpm rebuild bypasses the install-time script-blocking security policy.
+# Build native modules in the workspace so they are available in /app/node_modules.
 # sharp uses the prebuilt @img/sharp-linuxmusl-x64 binary from the lockfile.
 RUN pnpm rebuild canvas @tensorflow/tfjs-node
 
@@ -29,6 +28,12 @@ RUN node artifacts/api-server/build.mjs
 # Use pnpm deploy to create a self-contained folder with all resolved node_modules
 # (includes .pnpm store so symlinks resolve correctly)
 RUN pnpm --filter @workspace/api-server deploy --prod --legacy /app/deploy
+
+# pnpm deploy reinstalls packages and may skip lifecycle scripts for native modules.
+# Rebuild canvas and tfjs-node inside the deploy directory using build tools already present.
+WORKDIR /app/deploy
+RUN pnpm rebuild canvas @tensorflow/tfjs-node || true
+WORKDIR /app
 
 # ---- runtime ----
 FROM node:22-alpine

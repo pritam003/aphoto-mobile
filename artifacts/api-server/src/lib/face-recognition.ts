@@ -13,13 +13,15 @@
 
 import { randomUUID } from "crypto";
 import path from "path";
-import { createCanvas, loadImage, Image } from "canvas";
-// Use the native Node.js TensorFlow backend for GPU/CPU acceleration
-import "@tensorflow/tfjs-node";
-import * as faceapi from "@vladmandic/face-api";
 import { db, peopleTable, photoFacesTable, photosTable } from "@workspace/db";
 import { eq, and, isNotNull, sql } from "drizzle-orm";
 import { uploadBlob, downloadBlob } from "./azure-storage.js";
+
+// Native modules loaded lazily so the server starts even if canvas.node is missing
+let createCanvas: any;
+let loadImage: any;
+let CanvasImage: any;
+let faceapi: any;
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -38,15 +40,31 @@ let _loadPromise: Promise<void> | null = null;
 function ensureModels(): Promise<void> {
   if (_loadPromise) return _loadPromise;
   _loadPromise = (async () => {
+    // Dynamically import native modules so the server starts even if canvas.node is missing.
+    // If any import fails, the error propagates to runFaceRecognitionJob() which logs and swallows it.
+    const canvasMod = await import("canvas");
+    createCanvas = canvasMod.createCanvas;
+    loadImage = canvasMod.loadImage;
+    CanvasImage = canvasMod.Image;
+
+    await import("@tensorflow/tfjs-node");
+
+    const faceapiMod = await import("@vladmandic/face-api");
+    faceapi = (faceapiMod as any).default ?? faceapiMod;
+
     // face-api.js needs a canvas environment in Node
     (global as any).HTMLVideoElement = class {};
-    (faceapi as any).env.monkeyPatch({ Canvas: createCanvas as any, Image: Image as any });
+    faceapi.env.monkeyPatch({ Canvas: createCanvas, Image: CanvasImage });
     await Promise.all([
       faceapi.nets.ssdMobilenetv1.loadFromDisk(MODEL_PATH),
       faceapi.nets.faceLandmark68Net.loadFromDisk(MODEL_PATH),
       faceapi.nets.faceRecognitionNet.loadFromDisk(MODEL_PATH),
     ]);
-  })();
+  })().catch((err) => {
+    // Reset so a later retry can try again (e.g. after a deploy that adds canvas)
+    _loadPromise = null;
+    throw err;
+  });
   return _loadPromise;
 }
 
@@ -63,7 +81,7 @@ interface FaceResult {
 const MAX_DETECT_DIM = 800;
 
 async function detectFacesInBuffer(buffer: Buffer): Promise<FaceResult[]> {
-  const orig = await loadImage(buffer as any);
+  const orig = await loadImage(buffer);
 
   // Downscale to MAX_DETECT_DIM for detection (thumbnail approach)
   const scale = Math.min(1, MAX_DETECT_DIM / Math.max(orig.width, orig.height));
@@ -71,10 +89,10 @@ async function detectFacesInBuffer(buffer: Buffer): Promise<FaceResult[]> {
   const h = Math.round(orig.height * scale);
 
   const canvas = createCanvas(w, h);
-  canvas.getContext("2d").drawImage(orig as any, 0, 0, w, h);
+  canvas.getContext("2d").drawImage(orig, 0, 0, w, h);
 
   const detections = await faceapi
-    .detectAllFaces(canvas as any, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+    .detectAllFaces(canvas, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
     .withFaceLandmarks()
     .withFaceDescriptors();
 
@@ -111,7 +129,7 @@ async function cropFaceToBlob(
   userId: string,
 ): Promise<string | null> {
   try {
-    const img = await loadImage(buffer as any);
+    const img = await loadImage(buffer);
     const pad = Math.round(box.width * 0.2);
     const sx = Math.max(0, box.x - pad);
     const sy = Math.max(0, box.y - pad);
@@ -119,7 +137,7 @@ async function cropFaceToBlob(
     const sh = Math.min(img.height - sy, box.height + pad * 2);
 
     const thumb = createCanvas(sw, sh);
-    thumb.getContext("2d").drawImage(img as any, sx, sy, sw, sh, 0, 0, sw, sh);
+    thumb.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
 
     const thumbBuffer = thumb.toBuffer("image/jpeg", { quality: 0.85 });
     const blobName = `${userId}/faces/${randomUUID()}.jpg`;
