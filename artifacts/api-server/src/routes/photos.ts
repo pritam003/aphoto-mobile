@@ -38,6 +38,41 @@ async function extractTakenAt(buffer: Buffer, mimeType: string): Promise<Date | 
   }
 }
 
+/** Extract GPS coordinates from EXIF. Returns null if no GPS data. */
+async function extractGpsCoords(buffer: Buffer, mimeType: string): Promise<{ lat: number; lon: number } | null> {
+  if (!mimeType.startsWith("image/")) return null;
+  try {
+    const gps = await exifr.gps(buffer);
+    if (gps?.latitude != null && gps?.longitude != null) {
+      return { lat: gps.latitude, lon: gps.longitude };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Reverse-geocode lat/lon to a location string using Nominatim (OpenStreetMap). */
+async function reverseGeocode(lat: number, lon: number): Promise<string> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=10&addressdetails=1`;
+    const res = await fetch(url, { headers: { "User-Agent": "PhotoMasterApp/1.0" }, signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return "";
+    const data = await res.json() as { address?: Record<string, string> };
+    const addr = data.address ?? {};
+    // Build a readable location string: suburb → city → state_district → state → country
+    const parts = [
+      addr.suburb || addr.neighbourhood || addr.village || addr.town,
+      addr.city || addr.municipality || addr.county,
+      addr.state,
+      addr.country,
+    ].filter(Boolean) as string[];
+    return parts.join(", ");
+  } catch {
+    return "";
+  }
+}
+
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 
@@ -301,6 +336,7 @@ router.get("/photos", async (req: any, res) => {
           ilike(photosTable.filename, `%${search}%`),
           ilike(photosTable.description, `%${search}%`),
           ilike(photosTable.tags, `%${search}%`),
+          ilike(photosTable.locationName, `%${search}%`),
         )!,
       );
     }
@@ -423,6 +459,8 @@ router.get("/photos", async (req: any, res) => {
         trashedAt: photo.trashedAt,
         uploadedAt: photo.uploadedAt,
         takenAt: photo.takenAt,
+        tags: photo.tags ?? null,
+        locationName: photo.locationName ?? null,
         albums: [],
       };
     });
@@ -491,10 +529,12 @@ router.post("/photos/register", async (req: any, res) => {
           await db.update(photosTable).set({ takenAt: extracted }).where(eq(photosTable.id, photo.id));
         }
       }
-      const [thumbs, aiTags] = await Promise.all([
+      const [thumbs, aiTags, gpsCoords] = await Promise.all([
         generateThumbnails(buf, blobName, contentType),
         analyzePhoto(buf, contentType),
+        extractGpsCoords(buf, contentType),
       ]);
+      const locationName = gpsCoords ? await reverseGeocode(gpsCoords.lat, gpsCoords.lon) : null;
       if (thumbs) {
         await db.update(photosTable)
           .set({ thumbBlobName: thumbs.thumbBlobName, previewBlobName: thumbs.previewBlobName })
@@ -502,6 +542,9 @@ router.post("/photos/register", async (req: any, res) => {
       }
       if (aiTags) {
         await db.update(photosTable).set({ tags: aiTags }).where(eq(photosTable.id, photo.id));
+      }
+      if (locationName) {
+        await db.update(photosTable).set({ locationName }).where(eq(photosTable.id, photo.id));
       }
       await cacheDelPattern(`stats:${userId}`);
     })
@@ -520,11 +563,13 @@ router.post("/photos", upload.single("file"), async (req: any, res) => {
     ? `${userId}/${albumId}/${randomUUID()}${ext}`
     : `${userId}/${randomUUID()}${ext}`;
 
-  const [takenAt, thumbs, aiTags] = await Promise.all([
+  const [takenAt, thumbs, aiTags, gpsCoords] = await Promise.all([
     extractTakenAt(req.file.buffer, req.file.mimetype),
     generateThumbnails(req.file.buffer, blobName, req.file.mimetype),
     analyzePhoto(req.file.buffer, req.file.mimetype),
+    extractGpsCoords(req.file.buffer, req.file.mimetype),
   ]);
+  const locationName = gpsCoords ? await reverseGeocode(gpsCoords.lat, gpsCoords.lon) : null;
 
   await uploadBlob(blobName, req.file.buffer, req.file.mimetype);
 
@@ -541,6 +586,7 @@ router.post("/photos", upload.single("file"), async (req: any, res) => {
       size: req.file.size,
       takenAt,
       tags: aiTags || null,
+      locationName: locationName || null,
     })
     .returning();
 

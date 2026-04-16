@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 /**
- * One-shot backfill: analyse all photos without AI tags using Azure Computer Vision.
+ * One-shot backfill:
+ *   1. AI Vision (Tags + OCR) for photos without tags
+ *   2. GPS reverse-geocoding for photos without location_name
  * Run from the api-server directory:
  *   AZURE_VISION_ENDPOINT=https://... AZURE_VISION_KEY=... node backfill-vision.mjs
  *
  * Optional env vars:
- *   BATCH_SIZE   - photos processed in each batch (default 5)
+ *   BATCH_SIZE   - photos processed in each batch for vision (default 3)
  *   MAX_PHOTOS   - stop after this many (default unlimited)
  */
 import { BlobServiceClient } from "@azure/storage-blob";
 import { DefaultAzureCredential } from "@azure/identity";
 import pg from "pg";
+import exifr from "exifr";
 
 const DB_URL = process.env.DATABASE_URL;
 if (!DB_URL) throw new Error("DATABASE_URL env var required");
@@ -90,9 +93,11 @@ const { Client } = pg;
 const dbClient = new Client({ connectionString: DB_URL });
 await dbClient.connect();
 
-// Ensure the tags column exists (runs migration if not already done)
+// Ensure columns exist
 await dbClient.query("ALTER TABLE photos ADD COLUMN IF NOT EXISTS tags TEXT");
+await dbClient.query("ALTER TABLE photos ADD COLUMN IF NOT EXISTS location_name TEXT");
 
+// ── Phase 1: AI Vision tagging ───────────────────────────────────────────────
 const result = await dbClient.query(`
   SELECT id, blob_name, content_type
   FROM public.photos
@@ -101,6 +106,7 @@ const result = await dbClient.query(`
 `);
 
 const rows = result.rows.slice(0, MAX_PHOTOS);
+console.log(`\n── Phase 1: AI Vision ──────────────────────────────────────────`);
 console.log(`Found ${rows.length} photos without AI tags (of ${result.rows.length} total).\n`);
 
 let success = 0;
@@ -132,5 +138,73 @@ for (let i = 0; i < rows.length; i += BATCH_SIZE) {
   if (i + BATCH_SIZE < rows.length) await new Promise((r) => setTimeout(r, 3200 * BATCH_SIZE));
 }
 
+console.log(`\nPhase 1 done. ${success} tagged, ${failed} failed/skipped.`);
+
+// ── Phase 2: GPS reverse-geocoding ──────────────────────────────────────────
+async function reverseGeocode(lat, lon) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=10&addressdetails=1`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "PhotoMasterBackfill/1.0" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return "";
+    const data = await res.json();
+    const addr = data.address ?? {};
+    const parts = [
+      addr.suburb || addr.neighbourhood || addr.village || addr.town,
+      addr.city || addr.municipality || addr.county,
+      addr.state,
+      addr.country,
+    ].filter(Boolean);
+    return parts.join(", ");
+  } catch {
+    return "";
+  }
+}
+
+const gpsResult = await dbClient.query(`
+  SELECT id, blob_name, content_type
+  FROM public.photos
+  WHERE location_name IS NULL AND content_type LIKE 'image/%'
+  ORDER BY uploaded_at DESC
+`);
+
+const gpsRows = gpsResult.rows.slice(0, MAX_PHOTOS);
+console.log(`\n── Phase 2: GPS reverse-geocoding ──────────────────────────────`);
+console.log(`Found ${gpsRows.length} photos without location.\n`);
+
+let gpsSuccess = 0;
+let gpsNoData = 0;
+
+for (let i = 0; i < gpsRows.length; i++) {
+  const row = gpsRows[i];
+  try {
+    const buffer = await downloadBlob(row.blob_name);
+    const gps = await exifr.gps(buffer).catch(() => null);
+    if (gps?.latitude != null && gps?.longitude != null) {
+      const location = await reverseGeocode(gps.latitude, gps.longitude);
+      if (location) {
+        await dbClient.query("UPDATE public.photos SET location_name = $1 WHERE id = $2", [location, row.id]);
+        console.log(`  [${i + 1}/${gpsRows.length}] ✓ ${location}`);
+        gpsSuccess++;
+      } else {
+        await dbClient.query("UPDATE public.photos SET location_name = $1 WHERE id = $2", ["", row.id]);
+        gpsNoData++;
+      }
+    } else {
+      // Mark as processed (no GPS) to skip on next run
+      await dbClient.query("UPDATE public.photos SET location_name = $1 WHERE id = $2", ["", row.id]);
+      gpsNoData++;
+    }
+    // Nominatim allows max 1 req/s
+    if (i < gpsRows.length - 1) await new Promise((r) => setTimeout(r, 1100));
+  } catch (err) {
+    console.error(`  [${i + 1}/${gpsRows.length}] ✗ ${err.message}`);
+  }
+}
+
+console.log(`\nPhase 2 done. ${gpsSuccess} locations found, ${gpsNoData} without GPS.`);
+
 await dbClient.end();
-console.log(`\nDone. ${success} tagged, ${failed} failed/skipped.`);
+console.log(`\nAll done.`);

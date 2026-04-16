@@ -1,43 +1,30 @@
-import createClient from "@azure-rest/ai-vision-image-analysis";
-import { AzureKeyCredential } from "@azure/core-auth";
-
 const ENDPOINT = process.env.AZURE_VISION_ENDPOINT ?? "";
 const KEY = process.env.AZURE_VISION_KEY ?? "";
 
-let _client: ReturnType<typeof createClient> | null = null;
-
-function getClient(): ReturnType<typeof createClient> | null {
-  if (!ENDPOINT || !KEY) return null;
-  if (!_client) {
-    _client = createClient(ENDPOINT, new AzureKeyCredential(KEY));
-  }
-  return _client;
-}
+const API_VERSION = "2024-02-01";
 
 /**
- * Analyzes an image buffer with Azure Computer Vision and returns a
- * comma-separated string of caption text, object/scene tags, and OCR words.
- * Returns "" gracefully if the service is not configured or the call fails.
+ * Analyzes an image buffer with Azure Computer Vision (Tags + OCR only, plain fetch).
+ * Returns a comma-separated string. Returns "" if the service is not configured or fails.
  */
 export async function analyzePhoto(buffer: Buffer, mimeType: string): Promise<string> {
   if (!mimeType.startsWith("image/")) return "";
-  const client = getClient();
-  if (!client) return "";
+  if (!ENDPOINT || !KEY) return "";
+
+  const url = `${ENDPOINT.replace(/\/$/, "")}/computervision/imageanalysis:analyze?api-version=${API_VERSION}&features=Tags,Read&language=en`;
 
   try {
-    const result = await client.path("/imageanalysis:analyze").post({
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Ocp-Apim-Subscription-Key": KEY,
+      },
       body: buffer,
-      queryParameters: {
-        features: ["Tags", "Read"],
-        language: "en",
-        "api-version": "2024-02-01",
-      } as Record<string, string | string[]>,
-      contentType: "application/octet-stream",
     });
+    if (!res.ok) return "";
 
-    if (result.status !== "200") return "";
-    const body = result.body as Record<string, unknown>;
-
+    const body = await res.json() as Record<string, unknown>;
     const parts: string[] = [];
 
     const tagsResult = body.tagsResult as { values?: Array<{ name: string; confidence: number }> } | undefined;

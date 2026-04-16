@@ -21,6 +21,7 @@ export const photosTable = pgTable("photos", {
   uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
   takenAt: timestamp("taken_at"),
   tags: text("tags"),
+  locationName: text("location_name"),
 }, (t) => [
   index("photos_user_uploaded_idx").on(t.userId, t.uploadedAt),
   index("photos_user_trashed_idx").on(t.userId, t.trashed),

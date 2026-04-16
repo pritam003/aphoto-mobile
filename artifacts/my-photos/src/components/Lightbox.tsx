@@ -248,6 +248,22 @@ export default function Lightbox({ photos, initialIndex, onClose, onPhotoTrash }
                 <p className="text-white">{photo.description}</p>
               </div>
             )}
+            {photo.locationName && (
+              <div>
+                <p className="text-white/50 text-xs mb-0.5">Location</p>
+                <p className="text-white">{photo.locationName}</p>
+              </div>
+            )}
+            {photo.tags && (
+              <div>
+                <p className="text-white/50 text-xs mb-1">AI Tags</p>
+                <div className="flex flex-wrap gap-1">
+                  {photo.tags.split(", ").slice(0, 20).map((tag: string) => (
+                    <span key={tag} className="text-xs bg-white/10 text-white/80 px-2 py-0.5 rounded-full">{tag}</span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
