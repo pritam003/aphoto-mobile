@@ -1,3 +1,5 @@
+import sharp from "sharp";
+
 const ENDPOINT = process.env.AZURE_VISION_ENDPOINT ?? "";
 const KEY = process.env.AZURE_VISION_KEY ?? "";
 
@@ -5,11 +7,22 @@ const API_VERSION = "2024-02-01";
 
 /**
  * Analyzes an image buffer with Azure Computer Vision (Tags + OCR only, plain fetch).
+ * HEIC/HEIF images are converted to JPEG first since Azure Vision does not support them.
  * Returns a comma-separated string. Returns "" if the service is not configured or fails.
  */
 export async function analyzePhoto(buffer: Buffer, mimeType: string): Promise<string> {
   if (!mimeType.startsWith("image/")) return "";
   if (!ENDPOINT || !KEY) return "";
+
+  // Azure Vision does not support HEIC/HEIF — convert to JPEG first
+  let imageBuffer = buffer;
+  if (mimeType === "image/heic" || mimeType === "image/heif" || mimeType === "image/heic-sequence") {
+    try {
+      imageBuffer = await sharp(buffer).jpeg({ quality: 90 }).toBuffer();
+    } catch {
+      return "";
+    }
+  }
 
   const url = `${ENDPOINT.replace(/\/$/, "")}/computervision/imageanalysis:analyze?api-version=${API_VERSION}&features=Tags,Read&language=en`;
 
@@ -20,7 +33,7 @@ export async function analyzePhoto(buffer: Buffer, mimeType: string): Promise<st
         "Content-Type": "application/octet-stream",
         "Ocp-Apim-Subscription-Key": KEY,
       },
-      body: buffer,
+      body: imageBuffer,
     });
     if (!res.ok) return "";
 

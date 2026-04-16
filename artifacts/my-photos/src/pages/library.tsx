@@ -155,6 +155,16 @@ export default function LibraryPage() {
   const handleSearchChange = (val: string) => {
     setSearch(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!val) {
+      // Immediately reset back to monthly view when search is cleared
+      setDebouncedSearch("");
+      setSearchOffset(0);
+      setSearchPhotos([]);
+      setPhotosByMonth({});
+      setMonthsList([]);
+      fetchMonthsList();
+      return;
+    }
     debounceRef.current = setTimeout(() => {
       setDebouncedSearch(val);
       setSearchOffset(0);
