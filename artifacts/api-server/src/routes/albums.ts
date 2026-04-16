@@ -280,4 +280,34 @@ router.delete("/albums/:id/photos/:photoId", async (req: any, res) => {
   res.status(204).send();
 });
 
+// Archive all photos in an album (set hidden=true).
+// Works for ALL photos including guest-contributed ones (userId may differ from album owner).
+router.patch("/albums/:id/archive", async (req: any, res) => {
+  const userId = req.currentUser.id;
+
+  // Verify the album belongs to this user
+  const [album] = await db
+    .select()
+    .from(albumsTable)
+    .where(and(eq(albumsTable.id, req.params.id), eq(albumsTable.userId, userId)));
+  if (!album) return res.status(404).json({ error: "Not found" });
+
+  // Get all photo IDs in this album (includes guest-uploaded photos)
+  const links = await db
+    .select({ photoId: albumPhotosTable.photoId })
+    .from(albumPhotosTable)
+    .where(eq(albumPhotosTable.albumId, req.params.id));
+
+  const photoIds = links.map((l: { photoId: string }) => l.photoId);
+  if (photoIds.length === 0) return res.json({ archived: 0 });
+
+  // Archive all — no userId filter so guest-contributed photos are included
+  await db
+    .update(photosTable)
+    .set({ hidden: true })
+    .where(inArray(photosTable.id, photoIds));
+
+  res.json({ archived: photoIds.length });
+});
+
 export default router;

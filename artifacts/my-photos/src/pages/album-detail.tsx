@@ -116,14 +116,10 @@ export default function AlbumDetailPage() {
     if (!confirm(`Archive all ${photos.length} photos in "${album?.name}"? They will be moved to your Archive and hidden from the main library.`)) return;
     setArchiving(true);
     try {
-      await Promise.all(photos.map(p =>
-        fetch(`${API_BASE}/photos/${p.id}/hide`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ hidden: true }),
-        })
-      ));
+      await fetch(`${API_BASE}/albums/${id}/archive`, {
+        method: "PATCH",
+        credentials: "include",
+      });
       queryClient.invalidateQueries({ queryKey: getListPhotosQueryKey() });
       queryClient.invalidateQueries({ queryKey: getGetPhotoStatsQueryKey() });
       queryClient.invalidateQueries({ queryKey: getListAlbumPhotosQueryKey(id) });
