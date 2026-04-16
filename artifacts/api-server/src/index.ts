@@ -37,6 +37,7 @@ await db.execute(sql`ALTER TABLE album_shares ADD COLUMN IF NOT EXISTS name TEXT
 await db.execute(sql`ALTER TABLE album_shares ADD COLUMN IF NOT EXISTS access_code_hash TEXT NOT NULL DEFAULT ''`);
 await db.execute(sql`ALTER TABLE album_shares ADD COLUMN IF NOT EXISTS share_type TEXT NOT NULL DEFAULT 'code'`);
 await db.execute(sql`ALTER TABLE album_shares ADD COLUMN IF NOT EXISTS allowed_emails TEXT`);
+await db.execute(sql`ALTER TABLE photos ADD COLUMN IF NOT EXISTS tags TEXT`);
 
 app.listen(port, (err) => {
   if (err) {

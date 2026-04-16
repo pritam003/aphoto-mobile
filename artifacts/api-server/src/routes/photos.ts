@@ -6,6 +6,7 @@ import { db, photosTable, albumPhotosTable, albumsTable, shareLinksTable } from 
 import { eq, and, desc, ilike, or, sql, inArray } from "drizzle-orm";
 import { uploadBlob, deleteBlob, generateSasUrl, generateUploadSasUrl, downloadBlob } from "../lib/azure-storage.js";
 import { generateThumbnails } from "../lib/thumbnails.js";
+import { analyzePhoto } from "../lib/azure-vision.js";
 import { cacheGet, cacheSet, cacheDel, cacheDelPattern } from "../lib/cache.js";
 import exifr from "exifr";
 
@@ -39,6 +40,40 @@ async function extractTakenAt(buffer: Buffer, mimeType: string): Promise<Date | 
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+
+const MONTH_NAMES: Record<string, number> = {
+  january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3,
+  april: 4, apr: 4, may: 5, june: 6, jun: 6,
+  july: 7, jul: 7, august: 8, aug: 8, september: 9, sep: 9, sept: 9,
+  october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12,
+};
+
+function parseSearchDate(q: string): { type: "month"; value: string } | { type: "year"; value: number } | null {
+  const s = q.trim().toLowerCase();
+
+  // "march 2024" or "2024 march"
+  for (const [name, num] of Object.entries(MONTH_NAMES)) {
+    const re1 = new RegExp(`^${name}\\s+(\\d{4})$`);
+    const re2 = new RegExp(`^(\\d{4})\\s+${name}$`);
+    const m1 = re1.exec(s);
+    const m2 = re2.exec(s);
+    const year = m1?.[1] ?? m2?.[1];
+    if (year) return { type: "month", value: `${year}-${String(num).padStart(2, "0")}` };
+  }
+
+  // Pure month name "march" → current year
+  if (MONTH_NAMES[s] !== undefined) {
+    const year = new Date().getFullYear();
+    return { type: "month", value: `${year}-${String(MONTH_NAMES[s]).padStart(2, "0")}` };
+  }
+
+  // Pure 4-digit year "2024"
+  if (/^\d{4}$/.test(s)) {
+    return { type: "year", value: parseInt(s, 10) };
+  }
+
+  return null;
+}
 
 function requireAuth(req: any, res: any, next: any) {
   const user = (req as Record<string, unknown>).user as Record<string, string> | undefined;
@@ -249,12 +284,26 @@ router.get("/photos", async (req: any, res) => {
   }
 
   if (search) {
-    conditions.push(
-      or(
-        ilike(photosTable.filename, `%${search}%`),
-        ilike(photosTable.description, `%${search}%`),
-      )!,
-    );
+    const dateMatch = parseSearchDate(search);
+    if (dateMatch) {
+      if (dateMatch.type === "month") {
+        conditions.push(
+          sql`TO_CHAR(DATE_TRUNC('month', COALESCE(${photosTable.takenAt}, ${photosTable.uploadedAt})), 'YYYY-MM') = ${dateMatch.value}`,
+        );
+      } else {
+        conditions.push(
+          sql`EXTRACT(YEAR FROM COALESCE(${photosTable.takenAt}, ${photosTable.uploadedAt})) = ${dateMatch.value}`,
+        );
+      }
+    } else {
+      conditions.push(
+        or(
+          ilike(photosTable.filename, `%${search}%`),
+          ilike(photosTable.description, `%${search}%`),
+          ilike(photosTable.tags, `%${search}%`),
+        )!,
+      );
+    }
   }
 
   // Filter to a specific month: month=YYYY-MM
@@ -442,11 +491,17 @@ router.post("/photos/register", async (req: any, res) => {
           await db.update(photosTable).set({ takenAt: extracted }).where(eq(photosTable.id, photo.id));
         }
       }
-      const thumbs = await generateThumbnails(buf, blobName, contentType);
+      const [thumbs, aiTags] = await Promise.all([
+        generateThumbnails(buf, blobName, contentType),
+        analyzePhoto(buf, contentType),
+      ]);
       if (thumbs) {
         await db.update(photosTable)
           .set({ thumbBlobName: thumbs.thumbBlobName, previewBlobName: thumbs.previewBlobName })
           .where(eq(photosTable.id, photo.id));
+      }
+      if (aiTags) {
+        await db.update(photosTable).set({ tags: aiTags }).where(eq(photosTable.id, photo.id));
       }
       await cacheDelPattern(`stats:${userId}`);
     })
@@ -465,9 +520,10 @@ router.post("/photos", upload.single("file"), async (req: any, res) => {
     ? `${userId}/${albumId}/${randomUUID()}${ext}`
     : `${userId}/${randomUUID()}${ext}`;
 
-  const [takenAt, thumbs] = await Promise.all([
+  const [takenAt, thumbs, aiTags] = await Promise.all([
     extractTakenAt(req.file.buffer, req.file.mimetype),
     generateThumbnails(req.file.buffer, blobName, req.file.mimetype),
+    analyzePhoto(req.file.buffer, req.file.mimetype),
   ]);
 
   await uploadBlob(blobName, req.file.buffer, req.file.mimetype);
@@ -484,6 +540,7 @@ router.post("/photos", upload.single("file"), async (req: any, res) => {
       contentType: req.file.mimetype,
       size: req.file.size,
       takenAt,
+      tags: aiTags || null,
     })
     .returning();
 
