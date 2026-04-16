@@ -32,7 +32,8 @@ RUN pnpm --filter @workspace/api-server deploy --prod --legacy /app/deploy
 # pnpm deploy reinstalls packages and may skip lifecycle scripts for native modules.
 # Rebuild canvas and tfjs-node inside the deploy directory using build tools already present.
 WORKDIR /app/deploy
-RUN pnpm rebuild canvas @tensorflow/tfjs-node || true
+# pnpm rebuild can silently fail in the deploy dir (no lockfile); npm rebuild is more reliable here.
+RUN npm rebuild canvas @tensorflow/tfjs-node 2>&1 || true
 WORKDIR /app
 
 # ---- runtime ----

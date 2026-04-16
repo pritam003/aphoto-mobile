@@ -29,8 +29,8 @@ let faceapi: any;
 const SIMILARITY_THRESHOLD = parseFloat(process.env.FACE_SIMILARITY_THRESHOLD ?? "0.5");
 
 const MODEL_PATH = path.resolve(
-  new URL(import.meta.url).pathname,
-  "../../../../node_modules/@vladmandic/face-api/model",
+  path.dirname(new URL(import.meta.url).pathname),
+  "../node_modules/@vladmandic/face-api/model",
 );
 
 // ── Model loading (once per process) ─────────────────────────────────────────
