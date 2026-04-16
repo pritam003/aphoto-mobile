@@ -46,15 +46,22 @@ function ensureModels(): Promise<void> {
     createCanvas = canvasMod.createCanvas;
     loadImage = canvasMod.loadImage;
     CanvasImage = canvasMod.Image;
+    // face-api's env monkeyPatch needs the Canvas CLASS (not the factory function)
+    // so that its instanceof checks work correctly when calling toNetInput.
+    const CanvasClass = (canvasMod as any).Canvas;
 
-    await import("@tensorflow/tfjs-node");
-
+    // Important: load face-api BEFORE @tensorflow/tfjs-node.
+    // face-api loads @tensorflow/tfjs (pure-JS) as its peer dep; loading tfjs-node
+    // first causes a TF version conflict that crashes the process.
     const faceapiMod = await import("@vladmandic/face-api");
     faceapi = (faceapiMod as any).default ?? faceapiMod;
 
+    // Override the pure-JS backend with the faster native binding.
+    await import("@tensorflow/tfjs-node");
+
     // face-api.js needs a canvas environment in Node
     (global as any).HTMLVideoElement = class {};
-    faceapi.env.monkeyPatch({ Canvas: createCanvas, Image: CanvasImage });
+    faceapi.env.monkeyPatch({ Canvas: CanvasClass, Image: CanvasImage });
     await Promise.all([
       faceapi.nets.ssdMobilenetv1.loadFromDisk(MODEL_PATH),
       faceapi.nets.faceLandmark68Net.loadFromDisk(MODEL_PATH),
