@@ -537,11 +537,34 @@ router.patch("/photos/:id/hide", async (req: any, res) => {
   const userId = req.currentUser.id;
   const { hidden } = req.body as { hidden: boolean };
 
-  const [photo] = await db
+  // First try: photo belongs to the current user
+  let [photo] = await db
     .update(photosTable)
     .set({ hidden })
     .where(and(eq(photosTable.id, req.params.id), eq(photosTable.userId, userId)))
     .returning();
+
+  // Second try: guest-contributed photo (userId='guest:...') in an album owned by this user
+  if (!photo) {
+    const link = await db
+      .select({ albumId: albumPhotosTable.albumId })
+      .from(albumPhotosTable)
+      .innerJoin(albumsTable, eq(albumsTable.id, albumPhotosTable.albumId))
+      .where(and(
+        eq(albumPhotosTable.photoId, req.params.id),
+        eq(albumsTable.userId, userId),
+        eq(albumsTable.trashed, false),
+      ))
+      .limit(1);
+
+    if (link.length > 0) {
+      [photo] = await db
+        .update(photosTable)
+        .set({ hidden })
+        .where(eq(photosTable.id, req.params.id))
+        .returning();
+    }
+  }
 
   if (!photo) return res.status(404).json({ error: "Not found" });
 
