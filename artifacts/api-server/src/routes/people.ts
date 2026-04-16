@@ -25,9 +25,12 @@ router.get("/people", async (req: any, res) => {
           p.name,
           p.cover_face_blob,
           p.created_at,
-          COUNT(pf.id)::int AS face_count
+          COUNT(DISTINCT ph.id)::int AS face_count
         FROM people p
         LEFT JOIN photo_faces pf ON pf.person_id = p.id
+        LEFT JOIN photos ph ON ph.id = pf.photo_id
+          AND ph.trashed = false
+          AND ph.hidden  = false
         WHERE p.user_id = ${userId}
         GROUP BY p.id
         ORDER BY face_count DESC, p.created_at ASC`,
@@ -39,7 +42,7 @@ router.get("/people", async (req: any, res) => {
     coverUrl: r.cover_face_blob ? generateSasUrl(r.cover_face_blob) : null,
     faceCount: Number(r.face_count),
     createdAt: r.created_at,
-  }));
+  })).filter((p: any) => p.faceCount > 0);
 
   res.json({ people });
 });
