@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Images, Heart, BookImage, Trash2, LogOut, Sun, Moon, Upload, EyeOff, ChevronLeft, ChevronRight, Users } from "lucide-react";
+import { Images, Heart, BookImage, Trash2, LogOut, Sun, Moon, Upload, EyeOff, ChevronLeft, ChevronRight, Users, RefreshCw } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAuthLogout, useGetPhotoStats } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -153,6 +153,15 @@ export default function Sidebar({ onUploadClick, darkMode, onToggleDark, collaps
         >
           {darkMode ? <Sun className="w-4 h-4 shrink-0" /> : <Moon className="w-4 h-4 shrink-0" />}
           {!collapsed && (darkMode ? "Light mode" : "Dark mode")}
+        </button>
+
+        <button
+          onClick={() => window.location.reload()}
+          title="Reload app"
+          className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-sm text-sidebar-foreground hover:bg-sidebar-accent/60 transition-colors ${collapsed ? "justify-center" : ""}`}
+        >
+          <RefreshCw className="w-4 h-4 shrink-0" />
+          {!collapsed && "Reload app"}
         </button>
 
         {user && (
