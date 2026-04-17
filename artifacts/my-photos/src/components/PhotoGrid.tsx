@@ -513,14 +513,12 @@ const MonthGroup = memo(function MonthGroup({ month, monthPhotos, photoIndexMap,
   );
 });
 
-function VideoThumbnailCell({ src, isHovered }: { src: string; alt: string; isHovered: boolean }) {
+function VideoThumbnailCell({ thumbSrc, videoSrc, isHovered }: { thumbSrc: string; videoSrc: string; alt: string; isHovered: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(false);
-  const [frameReady, setFrameReady] = useState(false);
-  const firstFrameTime = useRef(0);
 
-  // Lazy-mount: only render the <video> element when near the viewport
+  // Lazy-mount the video element only when near the viewport
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -531,50 +529,7 @@ function VideoThumbnailCell({ src, isHovered }: { src: string; alt: string; isHo
     return () => obs.disconnect();
   }, []);
 
-  // Native DOM listeners — avoid React synthetic event race condition
-  useEffect(() => {
-    if (!inView) return;
-    const v = videoRef.current;
-    if (!v) return;
-
-    const markReady = () => setFrameReady(true);
-    const seekToFrame = () => {
-      const t = v.duration > 0 ? Math.min(1, v.duration * 0.05) : 0;
-      firstFrameTime.current = t;
-      v.currentTime = t;
-    };
-    const onMetadata = () => {
-      seekToFrame();
-      // Mark ready immediately on metadata — the video element will show
-      // whatever frame it has. seeked will fire later with a better frame.
-      markReady();
-    };
-
-    v.addEventListener("canplay", markReady);
-    v.addEventListener("seeked", markReady);
-    v.addEventListener("loadedmetadata", onMetadata);
-
-    // Handle already-loaded state
-    if (v.readyState >= 3) { markReady(); }
-    else if (v.readyState >= 1) { onMetadata(); }
-
-    // Hard fallback: always clear placeholder after 2s regardless of events
-    const fallback = setTimeout(markReady, 2000);
-
-    return () => {
-      v.removeEventListener("canplay", markReady);
-      v.removeEventListener("seeked", markReady);
-      v.removeEventListener("loadedmetadata", onMetadata);
-      clearTimeout(fallback);
-    };
-  }, [inView]);
-
-  // Play on hover, reset to first frame on leave.
-  // Do NOT guard on frameReady — play() works fine on unloaded video
-  // (browser loads + buffers + starts playing once enough data arrives).
-  // Including frameReady in deps means we re-run when the still frame is
-  // ready, so if the user is still hovering we start playback even if load
-  // was slow.
+  // Play on hover (desktop), pause/reset on leave
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -582,27 +537,25 @@ function VideoThumbnailCell({ src, isHovered }: { src: string; alt: string; isHo
       v.play().catch(() => {});
     } else {
       v.pause();
-      // Only seek back if video has loaded data (avoids invalid state errors)
-      if (v.readyState >= 1) v.currentTime = firstFrameTime.current;
+      if (v.readyState >= 1) v.currentTime = 0;
     }
-  }, [isHovered, frameReady]);
+  }, [isHovered]);
 
   return (
     <div ref={containerRef} className="w-full h-full relative pointer-events-none">
+      {/* Always-visible JPEG thumbnail — shows immediately on mobile and desktop */}
+      <img src={thumbSrc} className="w-full h-full object-cover" alt="" loading="lazy" />
+      {/* Video overlay — lazy-mounted, only loads when hovered (preload=none) */}
       {inView && (
         <video
           ref={videoRef}
-          src={src}
-          className="w-full h-full object-cover"
+          src={videoSrc}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-200 ${isHovered ? "opacity-100" : "opacity-0"}`}
           muted
           loop
           playsInline
-          preload={isHovered ? "auto" : "metadata"}
+          preload="none"
         />
-      )}
-      {/* Pulse placeholder until first frame is ready */}
-      {(!frameReady || !inView) && (
-        <div className="absolute inset-0 bg-muted animate-pulse" />
       )}
       {/* Play badge — fades out while hovering */}
       <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-200 ${isHovered ? "opacity-0" : "opacity-100"}`}>
@@ -686,7 +639,8 @@ const PhotoThumbnail = memo(function PhotoThumbnail({ photo, globalIndex, onOpen
       {!error ? (
         isVideo ? (
           <VideoThumbnailCell
-            src={thumbUrl}
+            thumbSrc={photo.thumbnailUrl || photo.url}
+            videoSrc={photo.url}
             alt={photo.filename}
             isHovered={videoHovered}
           />
