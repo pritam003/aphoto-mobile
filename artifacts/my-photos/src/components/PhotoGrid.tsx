@@ -271,7 +271,7 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
 
       {/* Multi-select floating action bar */}
       {selecting && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-2xl shadow-2xl">
+        <div className="fixed bottom-[calc(56px+env(safe-area-inset-bottom)+8px)] sm:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-2xl shadow-2xl max-w-[calc(100vw-2rem)] overflow-x-auto">
           <span className="text-sm font-medium text-foreground">{selectedIds.size} selected</span>
           <div className="w-px h-4 bg-border mx-1" />
           <button
@@ -593,6 +593,28 @@ const PhotoThumbnail = memo(function PhotoThumbnail({ photo, globalIndex, onOpen
   const { data: albums } = useListAlbums({ query: { queryKey: getListAlbumsQueryKey(), enabled: showAlbumPicker } });
   const addPhoto = useAddPhotoToAlbum();
 
+  // Long-press to select on mobile
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggered = useRef(false);
+  const touchMoved = useRef(false);
+
+  const handleTouchStart = () => {
+    touchMoved.current = false;
+    longPressTriggered.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressTriggered.current = true;
+      onToggleSelect(photo.id);
+      if (navigator.vibrate) navigator.vibrate(40);
+    }, 500);
+  };
+  const handleTouchMove = () => {
+    touchMoved.current = true;
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  };
+  const handleTouchEnd = () => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  };
+
   const handleAddToAlbum = async (e: React.MouseEvent, albumId: string) => {
     e.stopPropagation();
     await addPhoto.mutateAsync({ id: albumId, data: { photoId: photo.id } });
@@ -604,13 +626,19 @@ const PhotoThumbnail = memo(function PhotoThumbnail({ photo, globalIndex, onOpen
 
   return (
     <button
-      onClick={() => selecting ? onToggleSelect(photo.id) : onOpenLightbox(globalIndex)}
+      onClick={(e) => {
+        if (longPressTriggered.current) { longPressTriggered.current = false; return; }
+        selecting ? onToggleSelect(photo.id) : onOpenLightbox(globalIndex);
+      }}
       data-testid={`photo-${photo.id}`}
       data-photo-id={photo.id}
       className="photo-thumb relative aspect-square bg-muted overflow-hidden rounded-lg group focus:outline-none focus:ring-2 focus:ring-primary transition-[transform,box-shadow] duration-200 hover:scale-[1.03] hover:shadow-lg hover:z-10"
       style={{ contain: "layout style paint" }}
       onMouseEnter={() => isVideo && setVideoHovered(true)}
       onMouseLeave={() => isVideo && setVideoHovered(false)}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
       {!error ? (
         isVideo ? (
