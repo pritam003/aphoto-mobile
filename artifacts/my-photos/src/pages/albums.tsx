@@ -1,15 +1,17 @@
 import { useState, useEffect } from "react";
-import { Plus, BookImage, Trash2, FolderDown } from "lucide-react";
+import { Plus, BookImage, Trash2, FolderDown, Share2 } from "lucide-react";
 import { useListAlbums, useCreateAlbum, useDeleteAlbum, getListAlbumsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import GoogleImportModal from "@/components/GoogleImportModal";
+import ShareAlbumModal from "@/components/ShareAlbumModal";
 
 export default function AlbumsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [activeImportId, setActiveImportId] = useState<string | null>(null);
   const [name, setName] = useState("");
+  const [shareTarget, setShareTarget] = useState<{ id: string; name: string } | null>(null);
 
   // Auto-open modal when arriving from Google OAuth callback
   useEffect(() => {
@@ -118,6 +120,14 @@ export default function AlbumsPage() {
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
+                {/* Share button — always visible on mobile, hover on desktop */}
+                <button
+                  onClick={e => { e.preventDefault(); setShareTarget({ id: album.id, name: album.name }); }}
+                  className="absolute top-2 left-2 p-1.5 rounded-lg bg-black/50 text-white sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:bg-black/70"
+                  title="Share album"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                </button>
               </div>
             ))}
           </div>
@@ -160,6 +170,14 @@ export default function AlbumsPage() {
             setActiveImportId(null);
             queryClient.invalidateQueries({ queryKey: getListAlbumsQueryKey() });
           }}
+        />
+      )}
+
+      {shareTarget && (
+        <ShareAlbumModal
+          albumId={shareTarget.id}
+          albumName={shareTarget.name}
+          onClose={() => setShareTarget(null)}
         />
       )}
     </div>
