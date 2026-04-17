@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
-import { Heart, FolderPlus, Check, FolderMinus, Trash2, Download, X, EyeOff, Eye } from "lucide-react";
+import { Heart, FolderPlus, Check, FolderMinus, Trash2, Download, X, EyeOff, Eye, Share2 } from "lucide-react";
 import { groupPhotosByDate } from "@/lib/api";
 import Lightbox from "./Lightbox";
 import { useListAlbums, useAddPhotoToAlbum, useCreateAlbum, useTrashPhoto, getListAlbumsQueryKey, getListAlbumPhotosQueryKey, getListPhotosQueryKey, getGetPhotoStatsQueryKey } from "@workspace/api-client-react";
@@ -129,21 +129,35 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
   const handleBulkDownload = useCallback(async () => {
     const selectedPhotos = photos.filter(p => selectedIds.has(p.id));
     for (const photo of selectedPhotos) {
-      try {
-        const response = await fetch(photo.url || photo.thumbnailUrl, { credentials: "include" });
-        const blob = await response.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = objectUrl;
-        a.download = photo.filename || "photo.jpg";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(objectUrl);
-        await new Promise(r => setTimeout(r, 200));
-      } catch { /* skip failed */ }
+      const a = document.createElement("a");
+      a.href = photo.url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.download = photo.filename || "photo.jpg";
+      a.click();
+      await new Promise(r => setTimeout(r, 150));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photos, selectedIds]);
+
+  const handleBulkShare = useCallback(async () => {
+    const selectedPhotos = photos.filter(p => selectedIds.has(p.id));
+    if (navigator.share && selectedPhotos.length > 0) {
+      try {
+        const files: File[] = [];
+        for (const photo of selectedPhotos) {
+          try {
+            const res = await fetch(photo.url);
+            const blob = await res.blob();
+            files.push(new File([blob], photo.filename || "photo.jpg", { type: blob.type }));
+          } catch { /* skip failed */ }
+        }
+        if (files.length > 0 && navigator.canShare?.({ files })) {
+          await navigator.share({ files, title: `${files.length} photo${files.length !== 1 ? "s" : ""}` });
+        } else {
+          await navigator.share({ url: selectedPhotos[0].url, title: "Photo" });
+        }
+      } catch { /* user cancelled */ }
+    }
   }, [photos, selectedIds]);
 
   const handleBulkTrash = useCallback(async () => {
@@ -271,29 +285,50 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
 
       {/* Multi-select floating action bar */}
       {selecting && (
-        <div className="fixed bottom-[calc(56px+env(safe-area-inset-bottom)+8px)] sm:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-2xl shadow-2xl max-w-[calc(100vw-2rem)] overflow-x-auto">
-          <span className="text-sm font-medium text-foreground">{selectedIds.size} selected</span>
-          <div className="w-px h-4 bg-border mx-1" />
+        <div className="fixed bottom-[calc(56px+env(safe-area-inset-bottom)+8px)] sm:bottom-6 left-1/2 -translate-x-1/2 z-50
+          flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5
+          bg-card border border-border rounded-2xl shadow-2xl
+          max-w-[calc(100vw-2rem)]">
+
+          {/* Count + select-all */}
+          <span className="text-sm font-medium text-foreground whitespace-nowrap">{selectedIds.size}</span>
           <button
             onClick={() => setSelectedIds(new Set(photos.map(p => p.id)))}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors px-1.5 py-1 rounded hover:bg-muted whitespace-nowrap"
           >
-            Select all
+            All
           </button>
+
+          <div className="w-px h-4 bg-border mx-0.5" />
+
+          {/* Share — mobile Web Share API */}
+          <button
+            onClick={handleBulkShare}
+            title="Share"
+            className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
+
+          {/* Download */}
           <button
             onClick={handleBulkDownload}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+            title="Download"
+            className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 text-sm rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
           >
-            <Download className="w-3.5 h-3.5" />
-            Download
+            <Download className="w-4 h-4" />
+            <span className="hidden sm:inline">Download</span>
           </button>
+
+          {/* Add to album */}
           <div className="relative">
             <button
               onClick={() => setShowBulkAlbumPicker(v => !v)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+              title="Add to album"
+              className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 text-sm rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
             >
-              <FolderPlus className="w-3.5 h-3.5" />
-              Add to album
+              <FolderPlus className="w-4 h-4" />
+              <span className="hidden sm:inline">Add to album</span>
             </button>
             {showBulkAlbumPicker && (
               <div className="absolute bottom-full mb-2 left-0 z-20 bg-card border border-border rounded-xl shadow-2xl min-w-52 max-h-72 overflow-y-auto">
@@ -340,24 +375,32 @@ export default function PhotoGrid({ photos, emptyMessage = "No photos yet", date
               </div>
             )}
           </div>
+
+          {/* Hide */}
           <button
             onClick={handleBulkHide}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-border hover:bg-muted transition-colors"
+            title="Hide"
+            className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 text-sm rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
           >
-            <EyeOff className="w-3.5 h-3.5" />
-            Hide
+            <EyeOff className="w-4 h-4" />
+            <span className="hidden sm:inline">Hide</span>
           </button>
+
+          {/* Delete */}
           <button
             onClick={handleBulkTrash}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors"
+            title="Delete"
+            className="flex items-center gap-1.5 p-2 sm:px-3 sm:py-1.5 text-sm rounded-lg text-destructive hover:bg-destructive/10 transition-colors"
           >
-            <Trash2 className="w-3.5 h-3.5" />
-            Delete
+            <Trash2 className="w-4 h-4" />
+            <span className="hidden sm:inline">Delete</span>
           </button>
+
+          {/* Dismiss */}
           <button
             onClick={() => setSelectedIds(new Set())}
-            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors ml-1"
             title="Clear selection"
+            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
