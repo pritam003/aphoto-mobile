@@ -513,10 +513,12 @@ const MonthGroup = memo(function MonthGroup({ month, monthPhotos, photoIndexMap,
   );
 });
 
-function VideoThumbnailCell({ thumbSrc, videoSrc, isHovered }: { thumbSrc: string; videoSrc: string; alt: string; isHovered: boolean }) {
+function VideoThumbnailCell({ videoSrc, isHovered }: { thumbSrc: string; videoSrc: string; alt: string; isHovered: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(false);
+  const [frameReady, setFrameReady] = useState(false);
+  const thumbTime = useRef(0);
 
   // Lazy-mount the video element only when near the viewport
   useEffect(() => {
@@ -529,7 +531,33 @@ function VideoThumbnailCell({ thumbSrc, videoSrc, isHovered }: { thumbSrc: strin
     return () => obs.disconnect();
   }, []);
 
-  // Play on hover (desktop), pause/reset on leave
+  // After metadata loads seek to a representative frame so the poster is visible
+  useEffect(() => {
+    if (!inView) return;
+    const v = videoRef.current;
+    if (!v) return;
+    const onMeta = () => {
+      const t = v.duration > 0 ? Math.min(1, v.duration * 0.05) : 0;
+      thumbTime.current = t;
+      v.currentTime = t;
+    };
+    const onSeeked = () => setFrameReady(true);
+    const onCanPlay = () => setFrameReady(true);
+    v.addEventListener("loadedmetadata", onMeta);
+    v.addEventListener("seeked", onSeeked);
+    v.addEventListener("canplay", onCanPlay);
+    // Fallback: show whatever is there after 2 s
+    const fallback = setTimeout(() => setFrameReady(true), 2000);
+    if (v.readyState >= 2) { onMeta(); }
+    return () => {
+      v.removeEventListener("loadedmetadata", onMeta);
+      v.removeEventListener("seeked", onSeeked);
+      v.removeEventListener("canplay", onCanPlay);
+      clearTimeout(fallback);
+    };
+  }, [inView]);
+
+  // Play on hover (desktop), pause and return to thumb frame on leave
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -537,25 +565,26 @@ function VideoThumbnailCell({ thumbSrc, videoSrc, isHovered }: { thumbSrc: strin
       v.play().catch(() => {});
     } else {
       v.pause();
-      if (v.readyState >= 1) v.currentTime = 0;
+      if (v.readyState >= 1) v.currentTime = thumbTime.current;
     }
   }, [isHovered]);
 
   return (
     <div ref={containerRef} className="w-full h-full relative pointer-events-none">
-      {/* Always-visible JPEG thumbnail — shows immediately on mobile and desktop */}
-      <img src={thumbSrc} className="w-full h-full object-cover" alt="" loading="lazy" />
-      {/* Video overlay — lazy-mounted, only loads when hovered (preload=none) */}
       {inView && (
         <video
           ref={videoRef}
           src={videoSrc}
-          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-200 ${isHovered ? "opacity-100" : "opacity-0"}`}
+          className="w-full h-full object-cover"
           muted
           loop
           playsInline
-          preload="none"
+          preload="metadata"
         />
+      )}
+      {/* Pulse placeholder until first frame is painted */}
+      {(!frameReady || !inView) && (
+        <div className="absolute inset-0 bg-muted animate-pulse" />
       )}
       {/* Play badge — fades out while hovering */}
       <div className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-200 ${isHovered ? "opacity-0" : "opacity-100"}`}>
