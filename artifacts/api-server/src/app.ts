@@ -64,10 +64,16 @@ app.use(
   }),
 );
 
-// JWT middleware: read auth_token cookie and attach decoded payload to req.user
+// JWT middleware: read auth_token cookie OR Authorization: Bearer header
 const JWT_SECRET = process.env.JWT_SECRET || "your-app-id-or-realm-identifier";
 app.use((req: Request, _res: Response, next: NextFunction) => {
-  const token = req.cookies?.auth_token as string | undefined;
+  const cookieToken = req.cookies?.auth_token as string | undefined;
+  const authHeader = req.headers.authorization;
+  const bearerToken =
+    typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+      ? authHeader.slice(7)
+      : undefined;
+  const token = cookieToken ?? bearerToken;
   if (token) {
     try {
       const payload = jwt.verify(token, JWT_SECRET) as Record<string, unknown>;

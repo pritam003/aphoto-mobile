@@ -208,6 +208,103 @@ router.get("/auth/config", (_req, res) => {
   });
 });
 
+/**
+ * POST /api/auth/mobile/exchange
+ * Mobile-only: exchange a Google or Microsoft auth code for a JWT.
+ * Returns { token, user } as JSON (no cookie). Used by the Expo app.
+ *
+ * Body: { provider: "google" | "microsoft", code: string, redirectUri: string, codeVerifier?: string }
+ */
+router.post("/auth/mobile/exchange", async (req, res) => {
+  const { provider, code, redirectUri, codeVerifier } = req.body as {
+    provider: "google" | "microsoft";
+    code: string;
+    redirectUri: string;
+    codeVerifier?: string;
+  };
+
+  if (!provider || !code || !redirectUri) {
+    return res.status(400).json({ error: "provider, code, and redirectUri are required" });
+  }
+
+  try {
+    if (provider === "google") {
+      if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+        return res.status(503).json({ error: "Google login not configured" });
+      }
+      const params: Record<string, string> = {
+        code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+      };
+      if (codeVerifier) params.code_verifier = codeVerifier;
+
+      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(params).toString(),
+      });
+      if (!tokenRes.ok) {
+        const e = await tokenRes.text();
+        return res.status(401).json({ error: "Google token exchange failed", detail: e });
+      }
+      const { id_token } = await tokenRes.json() as { id_token: string };
+      const payload = JSON.parse(
+        Buffer.from(id_token.split(".")[1], "base64url").toString()
+      ) as { sub: string; name: string; email: string };
+
+      const token = createToken({ id: payload.sub, name: payload.name, email: payload.email });
+      return res.json({ token, user: { id: payload.sub, name: payload.name, email: payload.email } });
+    }
+
+    if (provider === "microsoft") {
+      const tenantId = process.env.AZURE_TENANT_ID;
+      const clientId = process.env.MSAL_CLIENT_ID;
+      if (!tenantId || !clientId) {
+        return res.status(503).json({ error: "Microsoft login not configured" });
+      }
+      const params: Record<string, string> = {
+        code,
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        grant_type: "authorization_code",
+        scope: "User.Read openid profile email",
+      };
+      if (codeVerifier) params.code_verifier = codeVerifier;
+
+      const tokenRes = await fetch(
+        `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams(params).toString(),
+        }
+      );
+      if (!tokenRes.ok) {
+        const e = await tokenRes.text();
+        return res.status(401).json({ error: "Microsoft token exchange failed", detail: e });
+      }
+      const { access_token } = await tokenRes.json() as { access_token: string };
+      const msUser = await getMicrosoftUser(access_token);
+      const token = createToken({
+        id: msUser.id,
+        name: msUser.displayName,
+        email: msUser.mail || msUser.userPrincipalName,
+      });
+      return res.json({
+        token,
+        user: { id: msUser.id, name: msUser.displayName, email: msUser.mail || msUser.userPrincipalName },
+      });
+    }
+
+    return res.status(400).json({ error: "Unsupported provider" });
+  } catch (err) {
+    return res.status(500).json({ error: "Exchange failed", detail: String(err) });
+  }
+});
+
 router.post("/auth/logout", (req, res) => {
   res.clearCookie("auth_token", {
     httpOnly: true,
